@@ -1,12 +1,13 @@
 # scheme->gba
 
 A Scheme to GBA compiler, featuring very bad Scheme. Written on a flight from ORD to SFO using:
-* An Incremental Approach to Compiler Construction by Abdulaziz Ghuloum
+* _An Incremental Approach to Compiler Construction_ by Abdulaziz Ghuloum
 * tonclib header files (from J Vijn's excellent TONC GBA reference)
 * The Racket docs
 
 Currently supports:
-* Integers
+* Fixnums
+* Immediate constants
 
 Requires devKitPro (formerly devKitARM).
 
