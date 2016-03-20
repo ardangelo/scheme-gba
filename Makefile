@@ -1,11 +1,7 @@
 PATH := $(DEVKITARM)/bin:$(PATH)
 
-LIBTONC	:= ./tonclib
-
-INCLUDE  := -I$(LIBTONC)/include
-LIBPATHS := -L$(LIBTONC)/lib
-
-LIBS    := -ltonc
+INCLUDE  := 
+LIBPATHS := 
 
 SPECS	:= -specs=gba.specs
 ARCH	:= -mthumb-interwork -mthumb
