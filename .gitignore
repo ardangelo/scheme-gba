@@ -2,4 +2,4 @@
 *.o
 *.elf
 *.gba
-*.s
+scheme.s
