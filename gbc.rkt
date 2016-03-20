@@ -3,8 +3,21 @@
 (provide scheme->gba)
 
 (require "compile-program.rkt")
+(require racket/cmdline)
 
-(define (scheme->gba code-path)
+(define output-path (make-parameter "scheme.s"))
+
+(define code-path
+  (command-line 
+   #:program "gbc.rkt"
+
+   #:once-each
+   [("-o") op "Output assembly to this file (default scheme.s)" (output-path op)]
+
+   #:args (code-path)
+   code-path))
+
+(define (scheme->gba code-path output-path)
 
 	(define prelude-port (open-input-file "prelude.s" #:mode 'text))
 	(define prelude (port->string prelude-port))
@@ -14,7 +27,7 @@
 	(define code (read code-port))
 	(close-input-port code-port)
 
-	(define out-port (open-output-file "scheme.s" #:exists 'truncate))
+	(define out-port (open-output-file output-path #:exists 'truncate))
 
 	(define (emit s . a)
 		(if (null? a)
@@ -31,4 +44,4 @@
 
 	(close-output-port out-port))
 
-(scheme->gba "scheme.rkt")
+(scheme->gba code-path (output-path))

@@ -16,6 +16,10 @@ all: gbctest.gba
 driver.o : driver.c
 	arm-none-eabi-gcc $(CFLAGS) -c driver.c -o driver.o
 
+# compile scheme.rkt
+scheme.s : scheme.rkt
+	racket gbc.rkt -o scheme.s scheme.rkt
+
 # assemble the output source
 scheme.o : scheme.s
 	arm-none-eabi-as $(ASFLAGS) -o scheme.o scheme.s
@@ -33,3 +37,4 @@ clean :
 	@rm -fv *.gba
 	@rm -fv *.elf
 	@rm -fv *.o
+	@rm -fv scheme.s .map
