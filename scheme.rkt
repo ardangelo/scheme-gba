@@ -1,1 +1,1 @@
-#\G
+(char->integer #\G)

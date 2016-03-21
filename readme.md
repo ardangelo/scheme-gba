@@ -8,6 +8,7 @@ A Scheme compiler targetting ARM assembly and Game Boy Advance. Written on a fli
 Currently supports:
 * Fixnums
 * Immediate constants
+* Primitive procedures: add1, sub1, integer->char, char->integer
 
 Requires devKitPro (formerly devKitARM).
 

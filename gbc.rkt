@@ -34,7 +34,7 @@
 			(displayln s out-port)
 			(if (= (length a) 1)
 				(displayln (format s (car a)) out-port)
-				(displayln (format s a) out-port))))
+				(displayln (apply format (cons s a)) out-port))))
 
 	(emit prelude)
 
