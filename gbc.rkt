@@ -38,7 +38,12 @@
 
 	(emit prelude)
 
-	(compile-program emit code)
+	(with-handlers
+		([exn:fail:user? (lambda (e) (begin
+			(close-output-port out-port)
+			(delete-file output-path)
+			(error (exn-message e))))])
+		(compile-program emit code))
 
 	(emit "	.ident	\"gbc.rkt dev\"")
 

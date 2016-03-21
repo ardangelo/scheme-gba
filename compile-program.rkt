@@ -7,6 +7,17 @@
 ; @ frame_needed = 0, uses_anonymous_args = 0
 ; @ link register save eliminated.
 (define (compile-program emit x)
+	(define (fits b)
+		(< b (expt 2 32)))
+
+	(define (can-mov-constant b)
+		(define (helper x shamt)
+			(if (> shamt 30) #f
+				(if (> (modulo x 4) 0)
+					(<= (abs x) 255)
+					(helper (arithmetic-shift -2 x) (+ shamt 2)))))
+		(helper b 0))
+
 	(let (
 		(fixnum-shift 2)
 		(fixnum-tag 0)
@@ -28,10 +39,12 @@
 			((null? x) empty-list-val)
 			(#t x)))
 
-	(define (eat-zeros b)
-		(if (not (zero? (modulo b 2))) (eat-zeros (arithmetic-shift b -1)) b))
+	(let ((target (immediate-rep x)))
 
-	(if (< (abs (eat-zeros (immediate-rep x))) 255) ; can't mov more than 8b + 4b shift
-		(emit "	mov r0, #~a" (immediate-rep x))
-		(emit "	ldr r0, =#~a" (immediate-rep x)))
-	(emit "	bx	lr")))
+		(if (fits target)
+			(begin
+				(if (can-mov-constant target) ; can't mov more than 8b + 4b even shift
+					(emit "	mov r0, #~a" target)
+					(emit "	ldr r0, =#~a" target))
+				(emit "	bx	lr"))
+			(raise-user-error (format "overflow on (immediate-rep ~a)" x))))))

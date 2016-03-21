@@ -12,13 +12,13 @@ LDFLAGS	:= $(ARCH) $(SPECS) $(LIBPATHS) $(LIBS) -Wl,-Map,$(PROJ).map
 
 all: gbctest.gba
 
-# compile the object files
-driver.o : driver.c
-	arm-none-eabi-gcc $(CFLAGS) -c driver.c -o driver.o
-
 # compile scheme.rkt
 scheme.s : scheme.rkt
 	racket gbc.rkt -o scheme.s scheme.rkt
+
+# compile the object files
+driver.o : driver.c
+	arm-none-eabi-gcc $(CFLAGS) -c driver.c -o driver.o
 
 # assemble the output source
 scheme.o : scheme.s
