@@ -1,1 +1,1 @@
-(null? '())
+(boolean? #t)

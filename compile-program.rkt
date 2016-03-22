@@ -59,6 +59,12 @@
 	(define (primcall-operand1 x) (cadr x))
 
 	(define (emit-expr x)
+		(define (cmp-and-set-boolean rand) (begin
+			(emit-expr (primcall-operand1 x))
+			(emit "	cmp r0, #~a" rand)
+			(emit "	moveq r0, #~a" (immediate-rep #t))
+			(emit "	movne r0, #~a" (immediate-rep #f))))
+
 		(cond
 			((immediate? x) (emit-immediate x))
 			((primcall? x)
@@ -87,19 +93,21 @@
 						(emit "	orr r0, r0, #~a" fixnum-tag)]
 					[(null?)
 						(emit-expr (primcall-operand1 x))
-						(emit "	cmp r0, #~a" empty-list-val)
-						(emit "	moveq r0, #~a" (immediate-rep #t))
-						(emit "	movne r0, #~a" (immediate-rep #f))]
+						(cmp-and-set-boolean empty-list-val)]
 					[(zero?)
 						(emit-expr (primcall-operand1 x))
-						(emit "	cmp r0, #~a" 0)
-						(emit "	moveq r0, #~a" (immediate-rep #t))
-						(emit "	movne r0, #~a" (immediate-rep #f))]
+						(cmp-and-set-boolean 0)]
 					[(not)
 						(emit-expr (primcall-operand1 x))
-						(emit "	cmp r0, #~a" (immediate-rep #f))
-						(emit "	moveq r0, #~a" (immediate-rep #t))
-						(emit "	movne r0, #~a" (immediate-rep #f))]
+						(cmp-and-set-boolean (immediate-rep #f))]
+					[(integer?)
+						(emit-expr (primcall-operand1 x))
+						(emit "	and r0, r0, #~a" fixnum-mask)
+						(cmp-and-set-boolean fixnum-tag)]
+					[(boolean?)
+						(emit-expr (primcall-operand1 x))
+						(emit "	and r0, r0, #~a" boolean-mask)
+						(cmp-and-set-boolean boolean-tag)]
 					[else
 						(raise-user-error (format "unknown expr to emit: ~a" x))]))
 			(#t (raise-user-error (format "unknown expr type to emit: ~a" x)))))
