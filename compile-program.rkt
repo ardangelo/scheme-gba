@@ -7,17 +7,17 @@
 ; @ frame_needed = 0, uses_anonymous_args = 0
 ; @ link register save eliminated.
 
-(define fixnum-mask     #b00000011) 
-(define fixnum-tag      #b00000000) 
-(define fixnum-shift    2) 
+(define fixnum-mask     #b00000011)
+(define fixnum-tag      #b00000000)
+(define fixnum-shift    2)
 
-(define char-mask       #b11111111) 
-(define char-tag        #b00001111) 
-(define char-shift      8) 
+(define char-mask       #b11111111)
+(define char-tag        #b00001111)
+(define char-shift      8)
 
-(define boolean-mask    #b01111111) 
-(define boolean-tag     #b00111111) 
-(define boolean-shift   7) 
+(define boolean-mask    #b01111111)
+(define boolean-tag     #b00111111)
+(define boolean-shift   7)
 
 (define empty-list-val  #b00101111)
 
@@ -34,17 +34,16 @@
 					(helper (arithmetic-shift -2 x) (+ shamt 2)))))
 		(helper b 0))
 
+	(define (quote-empty-list? x) (equal? x (quote (quote ()))))
 	(define (immediate-rep x)
 		(define (tag x shamt t) (bitwise-ior (arithmetic-shift x shamt) t))
 		(cond
 			((integer? x)	(tag x fixnum-shift fixnum-tag))
 			((char? x)		(tag (char->integer x) char-shift char-tag))
 			((boolean? x)	(tag (if x 1 0) boolean-shift boolean-tag))
-			((null? x) empty-list-val)
+			((quote-empty-list? x) empty-list-val)
 			(#t (raise-user-error (format "unknown type on (immediate-rep ~a)" x)))))
-
-	(define (immediate? x) (or (integer? x) (char? x) (boolean? x) (null? x)))
-
+	(define (immediate? x) (or (integer? x) (char? x) (boolean? x) (quote-empty-list? x)))
 	(define (emit-immediate x)
 		(let ((target (immediate-rep x)))
 		(if (fits target)
@@ -86,6 +85,21 @@
 								(emit "	asr r0, r0, #~a" (- shamt))))
 						(emit "	and r0, r0, #~a" (arithmetic-shift -1 fixnum-shift))
 						(emit "	orr r0, r0, #~a" fixnum-tag)]
+					[(null?)
+						(emit-expr (primcall-operand1 x))
+						(emit "	cmp r0, #~a" empty-list-val)
+						(emit "	moveq r0, #~a" (immediate-rep #t))
+						(emit "	movne r0, #~a" (immediate-rep #f))]
+					[(zero?)
+						(emit-expr (primcall-operand1 x))
+						(emit "	cmp r0, #~a" 0)
+						(emit "	moveq r0, #~a" (immediate-rep #t))
+						(emit "	movne r0, #~a" (immediate-rep #f))]
+					[(not)
+						(emit-expr (primcall-operand1 x))
+						(emit "	cmp r0, #~a" (immediate-rep #f))
+						(emit "	moveq r0, #~a" (immediate-rep #t))
+						(emit "	movne r0, #~a" (immediate-rep #f))]
 					[else
 						(raise-user-error (format "unknown expr to emit: ~a" x))]))
 			(#t (raise-user-error (format "unknown expr type to emit: ~a" x)))))

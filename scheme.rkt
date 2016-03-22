@@ -1,1 +1,1 @@
-(char->integer #\G)
+(null? '())

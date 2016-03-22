@@ -8,7 +8,7 @@ A Scheme compiler targetting ARM assembly and Game Boy Advance. Written on a fli
 Currently supports:
 * Fixnums
 * Immediate constants
-* Primitive procedures: add1, sub1, integer->char, char->integer
+* Primitive procedures: `add1`, `sub1`, `integer->char`, `char->integer`, `null?`, `zero?`, `not`
 
 Requires devKitPro (formerly devKitARM).
 
@@ -16,7 +16,7 @@ Requires devKitPro (formerly devKitARM).
 
 Emits the assembly prelude (`prelude.s`) and the result of compiling `scheme.rkt` with the label `scheme_entry`.
 
-### compile-program.rxt
+### compile-program.rkt
 
 Takes an `emit` function and a Scheme program and compiles it.
 
