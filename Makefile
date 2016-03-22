@@ -14,7 +14,7 @@ all: gbctest.gba
 
 # compile scheme.rkt
 scheme.s : scheme.rkt
-	racket gbc.rkt -o scheme.s scheme.rkt
+	racket gbacompile.rkt -o scheme.s scheme.rkt
 
 # compile the object files
 driver.o : driver.c

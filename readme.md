@@ -12,13 +12,17 @@ Currently supports:
 
 Requires devKitPro (formerly devKitARM).
 
-### gbc.rkt
+### gbacompile.rkt
 
 Emits the assembly prelude (`prelude.s`) and the result of compiling `scheme.rkt` with the label `scheme_entry`.
 
 ### compile-program.rkt
 
 Takes an `emit` function and a Scheme program and compiles it.
+
+### gba.rkt
+
+Contains GBA-specific constants and functions
 
 ### driver.c
 

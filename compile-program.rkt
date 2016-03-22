@@ -2,10 +2,7 @@
 
 (provide compile-program)
 
-; @ Function supports interworking.
-; @ args = 0, pretend = 0, frame = 0
-; @ frame_needed = 0, uses_anonymous_args = 0
-; @ link register save eliminated.
+(require "gba.rkt")
 
 (define wordsize 4)
 
@@ -73,6 +70,14 @@
 			(emit "	moveq r0, #~a" (immediate-rep #t))
 			(emit "	movne r0, #~a" (immediate-rep #f))))
 
+		(define (emit-1operand x)
+			(emit-expr (primcall-operand1 x)))
+		(define (emit-2operands x)
+			(emit-expr (primcall-operand2 x))
+			(emit "	stmfd sp!, {r0}")
+			(emit-expr (primcall-operand1 x))
+			(emit "	ldmfd sp!, {r1}"))
+
 		(cond
 			((immediate? x) (emit-immediate x))
 			((primcall? x)
@@ -80,13 +85,13 @@
 
 					; unary primitives
 					[(add1)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(emit "	add r0, r0, #~a" (immediate-rep 1))]
 					[(sub1)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(emit "	sub r0, r0, #~a" (immediate-rep 1))]
 					[(integer->char)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(let ((shamt (- char-shift fixnum-shift)))
 							(if (> shamt 0)
 								(emit "	lsl r0, r0, #~a" shamt)
@@ -94,7 +99,7 @@
 						(emit "	and r0, r0, #~a" (arithmetic-shift -1 char-shift))
 						(emit "	orr r0, r0, #~a" char-tag)]
 					[(char->integer)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(let ((shamt (- fixnum-shift char-shift)))
 							(if (> shamt 0)
 								(emit "	lsl r0, r0, #~a" shamt)
@@ -102,35 +107,29 @@
 						(emit "	and r0, r0, #~a" (arithmetic-shift -1 fixnum-shift))
 						(emit "	orr r0, r0, #~a" fixnum-tag)]
 					[(null?)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(cmp-and-set-boolean empty-list-val)]
 					[(zero?)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(cmp-and-set-boolean 0)]
 					[(not)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(cmp-and-set-boolean (immediate-rep #f))]
 					[(integer?)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(emit "	and r0, r0, #~a" fixnum-mask)
 						(cmp-and-set-boolean fixnum-tag)]
 					[(boolean?)
-						(emit-expr (primcall-operand1 x))
+						(emit-1operand x)
 						(emit "	and r0, r0, #~a" boolean-mask)
 						(cmp-and-set-boolean boolean-tag)]
 
 					; binary primtives
 					[(+)
-						(emit-expr (primcall-operand2 x))
-						(emit "	stmfd sp!, {r0}")
-						(emit-expr (primcall-operand1 x))
-						(emit "	ldmfd sp!, {r1}")
+						(emit-2operands x)
 						(emit "	add r0, r0, r1")]
 					[(+)
-						(emit-expr (primcall-operand2 x))
-						(emit "	stmfd sp!, {r0}")
-						(emit-expr (primcall-operand1 x))
-						(emit "	ldmfd sp!, {r1}")
+						(emit-2operands x)
 						(emit "	sub r0, r0, r1")]
 					[(*)
 						(emit-expr (primcall-operand2 x))
@@ -141,6 +140,16 @@
 						(emit "	ldmfd sp!, {r1}")
 						(emit "	mul r0, r1, r2")
 						(emit "	lsl r0, r0, #~a" fixnum-shift)]
+					[(=)
+						(emit-2operands x)
+						(emit "	cmp r0, r1")
+						(emit "	moveq r0, #~a" (immediate-rep #t))
+						(emit "	movne r0, #~a" (immediate-rep #f))]
+					[(<)
+						(emit-2operands x)
+						(emit "	cmp r0, r1")
+						(emit "	movlt r0, #~a" (immediate-rep #t))
+						(emit "	movge r0, #~a" (immediate-rep #f))]
 
 					[else
 						(raise-user-error (format "unknown expr to emit: ~a" x))]))

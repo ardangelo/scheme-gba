@@ -1,1 +1,1 @@
-(integer->char (+ (* (add1 6) (+ 4 6)) 1))
+(= (integer->char (+ (* (add1 6) (+ 4 6)) 1)) (char->integer #\G))
