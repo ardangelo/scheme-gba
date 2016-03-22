@@ -1,1 +1,1 @@
-(boolean? #t)
+(integer->char (+ (* (add1 6) (+ 4 6)) 1))

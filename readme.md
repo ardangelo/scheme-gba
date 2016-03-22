@@ -1,6 +1,6 @@
 # scheme->gba
 
-A Scheme compiler targetting ARM assembly and Game Boy Advance. Written on a flight from ORD to SFO using:
+A Scheme compiler targetting ARM assembly and Game Boy Advance. Started on a flight from ORD to SFO using:
 * _An Incremental Approach to Compiler Construction_ by Abdulaziz Ghuloum
 * tonclib header files (from J Vijn's excellent TONC GBA reference)
 * The Racket docs
@@ -8,7 +8,7 @@ A Scheme compiler targetting ARM assembly and Game Boy Advance. Written on a fli
 Currently supports:
 * Fixnums
 * Immediate constants
-* Primitive procedures: `add1`, `sub1`, `integer->char`, `char->integer`, `null?`, `zero?`, `not`
+* Primitive procedures: `add1`, `sub1`, `integer->char`, `char->integer`, `null?`, `zero?`, `not`, `integer?`, `boolean?`, `+`, `-`, `*`
 
 Requires devKitPro (formerly devKitARM).
 

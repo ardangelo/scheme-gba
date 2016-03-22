@@ -7,6 +7,8 @@
 ; @ frame_needed = 0, uses_anonymous_args = 0
 ; @ link register save eliminated.
 
+(define wordsize 4)
+
 (define fixnum-mask     #b00000011)
 (define fixnum-tag      #b00000000)
 (define fixnum-shift    2)
@@ -52,13 +54,19 @@
 				(emit "	ldr r0, =#~a" target))
 			(raise-user-error (format "overflow on (immediate-rep ~a)" x)))))
 
-	; expressions
+	; primitive calls
 	(define (primcall? x) 
-		(and (list? x) (member (car x) '(add1 sub1 integer->char char->integer null? zero? not integer? boolean?))))
+		(and (list? x) (member (car x) '(
+			; unary primitives
+			add1 sub1 integer->char char->integer null? zero? not integer? boolean?
+			; binary primitives
+			+ - * = <))))
 	(define (primcall-op x) (car x))
 	(define (primcall-operand1 x) (cadr x))
+	(define (primcall-operand2 x) (caddr x))
 
 	(define (emit-expr x)
+		; shortcuts
 		(define (cmp-and-set-boolean rand) (begin
 			(emit-expr (primcall-operand1 x))
 			(emit "	cmp r0, #~a" rand)
@@ -69,6 +77,8 @@
 			((immediate? x) (emit-immediate x))
 			((primcall? x)
 				(case (primcall-op x)
+
+					; unary primitives
 					[(add1)
 						(emit-expr (primcall-operand1 x))
 						(emit "	add r0, r0, #~a" (immediate-rep 1))]
@@ -108,6 +118,30 @@
 						(emit-expr (primcall-operand1 x))
 						(emit "	and r0, r0, #~a" boolean-mask)
 						(cmp-and-set-boolean boolean-tag)]
+
+					; binary primtives
+					[(+)
+						(emit-expr (primcall-operand2 x))
+						(emit "	stmfd sp!, {r0}")
+						(emit-expr (primcall-operand1 x))
+						(emit "	ldmfd sp!, {r1}")
+						(emit "	add r0, r0, r1")]
+					[(+)
+						(emit-expr (primcall-operand2 x))
+						(emit "	stmfd sp!, {r0}")
+						(emit-expr (primcall-operand1 x))
+						(emit "	ldmfd sp!, {r1}")
+						(emit "	sub r0, r0, r1")]
+					[(*)
+						(emit-expr (primcall-operand2 x))
+						(emit "	asr r0, r0, #~a" fixnum-shift)
+						(emit "	stmfd sp!, {r0}")
+						(emit-expr (primcall-operand1 x))
+						(emit "	mov r2, r0, asr #~a" fixnum-shift)
+						(emit "	ldmfd sp!, {r1}")
+						(emit "	mul r0, r1, r2")
+						(emit "	lsl r0, r0, #~a" fixnum-shift)]
+
 					[else
 						(raise-user-error (format "unknown expr to emit: ~a" x))]))
 			(#t (raise-user-error (format "unknown expr type to emit: ~a" x)))))
