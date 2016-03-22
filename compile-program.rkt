@@ -54,7 +54,7 @@
 
 	; expressions
 	(define (primcall? x) 
-		(and (list? x) (member (car x) '(add1 sub1 integer->char char->integer null?))))
+		(and (list? x) (member (car x) '(add1 sub1 integer->char char->integer null? zero? not integer? boolean?))))
 	(define (primcall-op x) (car x))
 	(define (primcall-operand1 x) (cadr x))
 
