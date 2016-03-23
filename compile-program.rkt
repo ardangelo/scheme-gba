@@ -4,8 +4,10 @@
 
 (require "gba.rkt")
 
+; machine values
 (define wordsize 4)
 
+; immediate values
 (define fixnum-mask     #b00000011)
 (define fixnum-tag      #b00000000)
 (define fixnum-shift    2)
@@ -19,6 +21,9 @@
 (define boolean-shift   7)
 
 (define empty-list-val  #b00101111)
+
+; interpreter values
+(define label-count 0)
 
 (define (compile-program emit x)
 	(define (fits b)
@@ -52,15 +57,13 @@
 			(raise-user-error (format "overflow on (immediate-rep ~a)" x)))))
 
 	; primitive calls
-	(define (primcall? x) 
-		(and (list? x) (member (car x) '(
-			; unary primitives
-			add1 sub1 integer->char char->integer null? zero? not integer? boolean?
-			; binary primitives
-			+ - * = <))))
 	(define (primcall-op x) (car x))
 	(define (primcall-operand1 x) (cadr x))
 	(define (primcall-operand2 x) (caddr x))
+	(define (primcall? x) 
+		(and (list? x) (list? (member (primcall-op x) '(
+			add1 sub1 integer->char char->integer null? zero? not integer? boolean?
+			+ - * = <)))))
 
 	; let
 	(define (bindings x) (cadr x))
@@ -82,7 +85,24 @@
 					(emit-expr (rhs b) si env)
 					(emit "	str r0, [sp, #~a]" si) ; using ld/stmfd cant keep track of si
 					(f (cdr b*) (extend-env (lhs b) si new-env) (- si wordsize)))))))
-	
+
+	; conditionals
+	(define (unique-label) (begin
+		(set! label-count (+ label-count 1))
+		(format "L~a" label-count)))
+	(define (emit-label label) (emit "~a:" label))
+	(define (if? x) (and (list? x) (eq? (car x) 'if)))
+	(define (emit-if condition if-true if-false si env)
+		(let ((L0 (unique-label)) (L1 (unique-label)))
+			(emit-expr condition si env)
+			(emit "	cmp r0, #~a" (immediate-rep #f))
+			(emit "	beq ~a" L0)
+			(emit-expr if-true si env)
+			(emit "	b ~a" L1)
+			(emit-label L0)
+			(emit-expr if-false si env)
+			(emit-label L1)))
+
 	; emit expressions
 	(define (emit-expr x si env)
 		; shortcuts
@@ -102,8 +122,8 @@
 
 		(cond
 			((immediate? x) (emit-immediate x))
-			((symbol? x) (emit "	ldr r0, [sp, #~a]" (lookup x env)))
 			((let? x) (emit-let (bindings x) (body x) si env))
+			((if? x) (emit-if (cadr x) (caddr x) (cadddr x) si env))
 			((primcall? x)
 				(case (primcall-op x)
 
@@ -152,7 +172,7 @@
 					[(+)
 						(emit-2operands x)
 						(emit "	add r0, r0, r1")]
-					[(+)
+					[(-)
 						(emit-2operands x)
 						(emit "	sub r0, r0, r1")]
 					[(*)
@@ -177,6 +197,8 @@
 
 					[else
 						(raise-user-error (format "unknown expr to emit: ~a" x))]))
+
+			((symbol? x) (emit "	ldr r0, [sp, #~a]" (lookup x env)))
 			(#t (raise-user-error (format "unknown expr type to emit: ~a" x)))))
 
 	(begin 

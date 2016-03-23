@@ -1,2 +1,4 @@
-(let ((four 4) (two 2))
-	(+ four two))
+(let ((x 2) (y 4))
+	(if (< x y)
+		(- y x)
+		(- x y)))
