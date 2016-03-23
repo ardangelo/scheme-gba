@@ -62,24 +62,48 @@
 	(define (primcall-operand1 x) (cadr x))
 	(define (primcall-operand2 x) (caddr x))
 
-	(define (emit-expr x)
+	; let
+	(define (bindings x) (cadr x))
+	(define (body x) (caddr x))
+	(define (let? x) (and (list? x) (eq? (car x) 'let)))
+	(define (lookup x env)
+		(hash-ref env (symbol->string x)))
+	(define (extend-env var si env) (begin
+		(hash-set! env (symbol->string var) si)
+		env))
+	(define (emit-let bindings body si env)
+		(define (lhs b) (car b))
+		(define (rhs b) (cadr b))
+		(let f ((b* bindings) (new-env env) (si si))
+			(cond
+				((null? b*) (emit-expr body si new-env))
+			(else
+				(let ((b (car b*)))
+					(emit-expr (rhs b) si env)
+					(emit "	str r0, [sp, #~a]" si) ; using ld/stmfd cant keep track of si
+					(f (cdr b*) (extend-env (lhs b) si new-env) (- si wordsize)))))))
+	
+	; emit expressions
+	(define (emit-expr x si env)
 		; shortcuts
 		(define (cmp-and-set-boolean rand) (begin
-			(emit-expr (primcall-operand1 x))
+			(emit-expr (primcall-operand1 x) si env)
 			(emit "	cmp r0, #~a" rand)
 			(emit "	moveq r0, #~a" (immediate-rep #t))
 			(emit "	movne r0, #~a" (immediate-rep #f))))
 
 		(define (emit-1operand x)
-			(emit-expr (primcall-operand1 x)))
+			(emit-expr (primcall-operand1 x) si env))
 		(define (emit-2operands x)
-			(emit-expr (primcall-operand2 x))
-			(emit "	stmfd sp!, {r0}")
-			(emit-expr (primcall-operand1 x))
-			(emit "	ldmfd sp!, {r1}"))
+			(emit-expr (primcall-operand2 x) si env)
+			(emit "	str r0, [sp, #~a]" si)
+			(emit-expr (primcall-operand1 x) (- si wordsize) env)
+			(emit "	ldr r1, [sp, #~a]" si))
 
 		(cond
 			((immediate? x) (emit-immediate x))
+			((symbol? x) (emit "	ldr r0, [sp, #~a]" (lookup x env)))
+			((let? x) (emit-let (bindings x) (body x) si env))
 			((primcall? x)
 				(case (primcall-op x)
 
@@ -132,15 +156,15 @@
 						(emit-2operands x)
 						(emit "	sub r0, r0, r1")]
 					[(*)
-						(emit-expr (primcall-operand2 x))
+						(emit-expr (primcall-operand2 x) si env)
 						(emit "	asr r0, r0, #~a" fixnum-shift)
-						(emit "	stmfd sp!, {r0}")
-						(emit-expr (primcall-operand1 x))
+						(emit "	str r0, [sp, #~a]" si)
+						(emit-expr (primcall-operand1 x) si env)
 						(emit "	mov r2, r0, asr #~a" fixnum-shift)
-						(emit "	ldmfd sp!, {r1}")
+						(emit "	ldr r1, [sp, #~a]" si)
 						(emit "	mul r0, r1, r2")
 						(emit "	lsl r0, r0, #~a" fixnum-shift)]
-					[(=)
+					[(= char=?)
 						(emit-2operands x)
 						(emit "	cmp r0, r1")
 						(emit "	moveq r0, #~a" (immediate-rep #t))
@@ -156,7 +180,7 @@
 			(#t (raise-user-error (format "unknown expr type to emit: ~a" x)))))
 
 	(begin 
-		(emit-expr x)
-		(emit "	bx	lr")
+		(emit-expr x 0 (make-hash))
+		(emit "	bx lr")
 	)
 )

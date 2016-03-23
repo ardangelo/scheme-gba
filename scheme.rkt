@@ -1,1 +1,2 @@
-(= (integer->char (+ (* (add1 6) (+ 4 6)) 1)) (char->integer #\G))
+(let ((four 4) (two 2))
+	(+ four two))
