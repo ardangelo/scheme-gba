@@ -2,157 +2,115 @@
 
 (provide compile-program)
 
+(require "mem-defs.rkt")
 (require "gba.rkt")
-
-; machine values
-(define wordsize 4)
-
-; immediate values
-(define fixnum-mask     #b00000011)
-(define fixnum-tag      #b00000000)
-(define fixnum-shift    2)
-
-(define char-mask       #b11111111)
-(define char-tag        #b00001111)
-(define char-shift      8)
-
-(define boolean-mask    #b01111111)
-(define boolean-tag     #b00111111)
-(define boolean-shift   7)
-
-(define empty-list-val  #b00101111)
 
 ; interpreter values
 (define label-count 0)
 
-; memory defines
-
-; memory management
-(struct ptr (type loc)
-	#:guard (lambda (type loc type-name)
-		(cond
-			[(not (member type '(reg stack)))
-				(raise-user-error (format "invalid ptr type: ~a" type))]
-			[else (values type loc)])))
-
-(struct var (varname ptr)
-	#:guard (lambda (varname ptr type-name)
-		(cond
-			[(not (ptr? ptr))
-				(raise-user-error (format "invalid ptr: ~a" ptr))]
-			[else (values varname ptr)])))
-
-(define r0 (ptr 'reg "r0"))
-(define r1 (ptr 'reg "r1"))
-(define r2 (ptr 'reg "r2"))
-(define r3 (ptr 'reg "r3"))
-(define r4 (ptr 'reg "r4"))
-(define r5 (ptr 'reg "r5"))
-(define r6 (ptr 'reg "r6"))
-(define r7 (ptr 'reg "r7"))
-(define r8 (ptr 'reg "r8"))
-(define r9 (ptr 'reg "r9"))
-(define r10 (ptr 'reg "r10"))
-(define r11 (ptr 'reg "r11"))
-(define r12 (ptr 'reg "r12"))
-
-(define scratch r8)
-(define (alloc regs si)
-	(define (helper regs-to-check)
-		(cond
-			((null? regs-to-check)
-				(ptr 'stack si))
-			((not (set-member? regs (car regs-to-check)))
-				(car regs-to-check))
-			(#t (helper (cdr regs-to-check)))))
-	(helper (list r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12)))
-(define (add-regs regs ptr)
-	(if (eq? (ptr-type ptr) 'reg)
-		(set-add regs ptr)
-		regs))
-(define (remove-regs regs ptr)
-	(if (eq? (ptr-type ptr) 'reg)
-		(set-remove regs ptr)
-		regs))
-(define (new-si si ptr)
-	(if (eq? (ptr-type ptr) 'stack)
-		(- si wordsize)
-		si))
-
-(define (can-mov-constant b) ; can't mov more than 8b + 4b even shift
-		(define (helper x shamt)
-			(if (> shamt 30) #f
-				(if (> (modulo x 4) 0)
-					(<= (abs x) 255)
-					(helper (arithmetic-shift -2 x) (+ shamt 2)))))
-		(helper b 0))
-
-(define (fits b)
-	(< b (expt 2 32)))
-
 (define (compile-program emit x)
-	(define (move dst src #:si [si 0] #:env [env (make-hash)] #:cndl [cndl ""] #:shift [shift null])
+	(emit "	mov ~a, #~a" (ptr-loc heapptr) (ptr-loc ptr-iwram)) ; set up the heap
+
+	(define (immediate? x) (or (integer? x) (char? x) (boolean? x) (quote-empty-list? x)))
+	(define (move dst src
+		#:si [si 0] #:env [env (make-hash)] #:cndl [cndl ""] #:shift [shift null])
+		(define (offset-reg? ptr) (member (ptr-type ptr) '(stack heap)))
+		(define (offset-base ptr)
+			(if (eq? (ptr-type ptr) 'stack)
+				(ptr-loc stackptr)
+				(ptr-loc heapptr)))
+		(define (direct-reg? ptr) (member (ptr-type ptr) '(reg)))
+		(define (direct-mem? ptr) (member (ptr-type ptr) '(mem)))
 		(if (not (or (ptr? src) (var? src) (integer? src)))
 			(raise-user-error (format "invalid move src: ~a" src))
 			(if (not (ptr? dst))
 				(raise-user-error (format "invalid move dst: ~a" dst))
-
 				(if (not (eq? src dst))
-					(case (ptr-type dst)
-						[(reg)
+					(cond
+						[(direct-reg? dst)
 							(cond
-								((integer? src)
+								[(immediate? src)
 									(if (null? shift)
 										(emit "	ldr~a ~a, =#~a" cndl (ptr-loc dst) src)
-										(emit "	mov~a ~a, ~a, ~a ~a" cndl (ptr-loc dst) (ptr-loc src) (car shift) (cadr shift))))
-								((eq? (ptr-type src) 'reg)
+										(emit "	mov~a ~a, ~a, ~a ~a" cndl (ptr-loc dst) (ptr-loc src) (car shift) (cadr shift)))]
+								[(direct-reg? src)
 									(if (null? shift)
 										(emit "	mov~a ~a, ~a" cndl (ptr-loc dst) (ptr-loc src))
-										(emit "	mov~a ~a, ~a, ~a ~a" cndl (ptr-loc dst) (ptr-loc src) (car shift) (cadr shift))))
-								((eq? (ptr-type src) 'stack)
-									(emit "	ldr~a ~a, [sp, #~a]" cndl (ptr-loc dst) (ptr-loc src)))
-								(else
-									(raise-user-error "internal move failure")))]
-						[(stack)
+										(emit "	mov~a ~a, ~a, ~a ~a" cndl (ptr-loc dst) (ptr-loc src) (car shift) (cadr shift)))]
+								[(offset-reg? src)
+									(emit "	ldr~a ~a, [~a, #~a]" cndl (ptr-loc dst) (offset-base src) (ptr-loc src))]
+								[(direct-mem? src)
+									(emit "	ldr~a ~a, ~a" cndl (ptr-loc dst) (ptr-loc src))]
+								[#t
+									(raise-user-error "internal move failure")])]
+						[(offset-reg? dst)
 							(cond
-								((integer? src)
+								[(immediate? src)
 									(if (can-mov-constant src)
-										(emit "	str~a #~a, [sp, #~a]" cndl src (ptr-loc dst))
+										(emit "	str~a #~a, [~a, #~a]" cndl src (offset-base dst) (ptr-loc dst))
 										(begin
 											(emit "	ldr~a ~a, =#~a" cndl scratch src)
-											(emit "	str~a ~a, [sp, #~a]" cndl scratch (ptr-loc dst)))))
-								((eq? (ptr-type src) 'reg)
-									(emit "	str~a ~a, [sp, #~a]" cndl (ptr-loc src) (ptr-loc dst)))
-
-								((eq? (ptr-type src) 'reg)
-									(emit "	str~a ~a, ~a" cndl (ptr-loc dst) (ptr-loc src)))
-								((eq? (ptr-type src) 'stack)
-									(emit "	ldr~a ~a, [sp, #~a]" cndl scratch (ptr-loc src))
-									(emit "	str~a ~a, [sp, #~a]" cndl scratch (ptr-loc dst)))
-								(else
-									(raise-user-error (format "internal move failure"))))]
-						[else
+											(emit "	str~a ~a, [~a, #~a]" cndl scratch (offset-base dst) (ptr-loc dst))))]
+								[(direct-reg? src)
+									(emit "	str~a ~a, [~a, #~a]" cndl (ptr-loc src) (offset-base dst) (ptr-loc dst))]
+								[(offset-reg? src)
+									(emit "	ldr~a ~a, [~a, #~a]" cndl scratch (offset-base src) (ptr-loc src))
+									(emit "	str~a ~a, [~a, #~a]" cndl scratch (offset-base dst) (ptr-loc dst))]
+								[#t
+									(raise-user-error (format "internal move failure"))])]
+						[(direct-mem? dst)
+							(cond
+								[(immediate? src)
+									(if (can-mov-constant src)
+										(emit "	str~a #~a, ~a" cndl src (ptr-loc dst))
+										(begin
+											(emit "	ldr~a ~a, =#~a" cndl scratch src)
+											(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))))]
+								[(direct-reg? src)
+									(emit "	str~a ~a, ~a" cndl (ptr-loc src) (ptr-loc dst))]
+								[(offset-reg? src)
+									(emit "	ldr~a ~a, [~a, #~a]" cndl scratch (offset-base src) (ptr-loc src))
+									(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))]
+								[(direct-mem? src)
+									(emit "	ldr~a ~a, ~a" cndl scratch (ptr-loc src))
+									(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))]
+								[#t
+									(raise-user-error (format "internal move failure"))])]
+						[#t
 							(raise-user-error (format "unsupported pointer type ~a" (ptr-type dst)))])
-					'()))))
-	(define (push src si)
-		(move (ptr 'stack si) src))
-	(define (pop dst si)
-		(move dst (ptr 'stack si)))
+					(emit "	@ src and dst same reg")))))
+	(define (push src si) (begin
+		(move (ptr 'stack si) src)
+		(- si wordsize)))
+	(define (pop dst si) (begin
+		(move dst (ptr 'stack si))
+		(+ si wordsize)))
+	(define (store-imm dst-addr src-imm #:cndl [cndl ""])
+		(move (ptr 'mem dst-addr) src-imm #:cndl cndl))
+	(define (load-ptr dst-ptr src-addr #:cndl [cndl ""])
+		(move dst-ptr (ptr 'mem src-addr) #:cndl cndl))
+	(define (store-ptr dst-addr src-ptr #:cndl [cndl ""])
+		(move (ptr 'mem dst-addr) src-ptr #:cndl cndl))
+	(define (load-reg free-reg ptr)
+		(if (eq? (ptr-type ptr) 'reg)
+			ptr
+			(begin
+				(move free-reg ptr)
+				free-reg)))
 
 	; immediate values
 	(define (quote-empty-list? x) (equal? x (quote (quote ()))))
 	(define (immediate-rep x)
 		(define (tag x shamt t) (bitwise-ior (arithmetic-shift x shamt) t))
 		(cond
-			((integer? x)	(tag x fixnum-shift fixnum-tag))
-			((char? x)		(tag (char->integer x) char-shift char-tag))
-			((boolean? x)	(tag (if x 1 0) boolean-shift boolean-tag))
-			((quote-empty-list? x) empty-list-val)
-			(#t (raise-user-error (format "unknown type on (immediate-rep ~a)" x)))))
-	(define (immediate? x) (or (integer? x) (char? x) (boolean? x) (quote-empty-list? x)))
+			[(integer? x)	(tag x fixnum-shift fixnum-tag)]
+			[(char? x)		(tag (char->integer x) char-shift char-tag)]
+			[(boolean? x)	(tag (if x 1 0) boolean-shift boolean-tag)]
+			[(quote-empty-list? x) empty-list-val]
+			[#t (raise-user-error (format "unknown type on (immediate-rep ~a)" x))]))
 	(define (emit-immediate x)
 		(let ((target (immediate-rep x)))
-		(if (fits target)
+		(if (< target (expt 2 32))
 			(move r0 target)
 			(raise-user-error (format "overflow on (immediate-rep ~a)" x)))))
 
@@ -163,7 +121,8 @@
 	(define (primcall? x) 
 		(and (list? x) (list? (member (primcall-op x) '(
 			add1 sub1 integer->char char->integer null? zero? not integer? boolean?
-			+ - * = <)))))
+			+ - * = <
+			cons car cdr)))))
 
 	; let
 	(define (bindings x) (cadr x))
@@ -183,11 +142,10 @@
 			(else
 				(let ((b (car b*)))
 					(emit-expr (rhs b) regs si env)
-					(push r0 si)
 					(f (cdr b*) 
 						(extend-env (lhs b) (ptr 'stack si) new-env)
 						regs
-						(- si wordsize)))))))
+						(push r0 si)))))))
 
 	; conditionals
 	(define (unique-label) (begin
@@ -216,19 +174,19 @@
 			(move r0 (immediate-rep #f) #:cndl "ne")))
 
 		(define (emit-1operand x)
-			(emit-expr (primcall-operand1 x) si env))
+				(emit-expr (primcall-operand1 x) si env))
 		(define (emit-2operands x)
-			(let ((op2-result (alloc regs si)))
+			(let ((op2-result2 (alloc regs si)))
 				(emit-expr (primcall-operand2 x) regs si env)
-				(move op2-result r0)
-				(emit-expr (primcall-operand1 x) (add-regs regs op2-result) (new-si si op2-result) env)
-				(move r1 op2-result)))
+				(move op2-result2 r0)
+				(emit-expr (primcall-operand1 x) (add-regs regs op2-result2) (new-si si op2-result2) env)
+				(load-reg r1 op2-result2)))
 
 		(cond
-			((immediate? x) (emit-immediate x))
-			((let? x) (emit-let (bindings x) (body x) regs si env))
-			((if? x) (emit-if (cadr x) (caddr x) (cadddr x) regs si env))
-			((primcall? x)
+			[(immediate? x) (emit-immediate x)]
+			[(let? x) (emit-let (bindings x) (body x) regs si env)]
+			[(if? x) (emit-if (cadr x) (caddr x) (cadddr x) regs si env)]
+			[(primcall? x)
 				(case (primcall-op x)
 
 					; unary primitives
@@ -274,11 +232,9 @@
 
 					; binary primtives
 					[(+)
-						(emit-2operands x)
-						(emit "	add r0, r0, r1")]
+						(emit "	add r0, r0, ~a" (ptr-loc (emit-2operands x)))]
 					[(-)
-						(emit-2operands x)
-						(emit "	sub r0, r0, r1")]
+						(emit "	sub r0, r0, ~a" (ptr-loc (emit-2operands x)))]
 					[(*)
 						(let ((op2-result (alloc regs si)))
 							(emit-expr (primcall-operand2 x) regs si env)
@@ -286,25 +242,30 @@
 							(move op2-result r0)
 							(emit-expr (primcall-operand1 x) (add-regs regs op2-result) (new-si si op2-result) env)
 							(emit "	mov r2, r0, asr #~a" fixnum-shift)
-							(move r1 op2-result)
-							(emit "	mul r0, r1, r2")
+							(emit "	mul r0, ~a, r2" (load-reg r1 op2-result))
 							(emit "	lsl ~a, ~a, #~a" (ptr-loc r0) (ptr-loc r0) fixnum-shift))]
 					[(= char=?)
-						(emit-2operands x)
-						(emit "	cmp ~a, #0" (ptr-loc r0))
+						(emit "	cmp ~a, ~a" (ptr-loc r0) (ptr-loc (emit-2operands x)))
 						(move r0 (immediate-rep #t) #:cndl "eq")
 						(move r0 (immediate-rep #f) #:cndl "ne")]
 					[(<)
-						(emit-2operands x)
-						(emit "	cmp ~a, ~a" (ptr-loc r0) (ptr-loc r1))
+						(emit "	cmp ~a, ~a" (ptr-loc r0) (ptr-loc (emit-2operands x)))
 						(move r0 (immediate-rep #t) #:cndl "lt")
 						(move r0 (immediate-rep #f) #:cndl "gt")]
 
+						; heap binary primitives
+					[(cons)
+						(let ((car r0) (cdr (emit-2operands x)))
+							(move (ptr 'heap 0) car)
+							(move (ptr 'heap wordsize) cdr)
+							(move r0 heapptr)
+							(emit "	orr r0, r0, #1")
+							(emit "	add ~a, ~a, #~a" (ptr-loc heapptr) (ptr-loc heapptr) (* 2 wordsize)))]
 					[else
-						(raise-user-error (format "unknown expr to emit: ~a" x))]))
+						(raise-user-error (format "unknown expr to emit: ~a" x))])]
 
-			((symbol? x) (move r0 (lookup x env)))
-			(#t (raise-user-error (format "unknown expr type to emit: ~a" x)))))
+			[(symbol? x) (move r0 (lookup x env))]
+			[#t (raise-user-error (format "unknown expr type to emit: ~a" x))]))
 
 	(begin 
 		(emit-expr x (set) 0 (make-hash))
