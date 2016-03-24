@@ -4,6 +4,5 @@
 
 (provide (all-defined-out))
 
-(require "mem-defs.rkt")
-
-(define ptr-iwram (ptr 'mem #x03000000))
+(define loc-iwram #x02000000)
+(define loc-wram #x03000000)

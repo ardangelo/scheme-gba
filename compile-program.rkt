@@ -9,7 +9,7 @@
 (define label-count 0)
 
 (define (compile-program emit x)
-	(emit "	mov ~a, #~a" (ptr-loc heapptr) (ptr-loc ptr-iwram)) ; set up the heap
+	(emit "	mov ~a, #~a" (ptr-loc heapptr) loc-iwram) ; set up the heap
 
 	(define (immediate? x) (or (integer? x) (char? x) (boolean? x) (quote-empty-list? x)))
 	(define (move dst src
@@ -269,6 +269,4 @@
 
 	(begin 
 		(emit-expr x (set) 0 (make-hash))
-		(emit "	bx lr")
-	)
-)
+		(emit "	bx lr")))
