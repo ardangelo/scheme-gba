@@ -1,5 +1,9 @@
 #lang racket
 
-; placeholder for GBA-specific defines
+; GBA-specific defines
 
-(define ptr-iwram #x03000000)
+(provide (all-defined-out))
+
+(require "mem-defs.rkt")
+
+(define ptr-iwram (ptr 'mem #x03000000))

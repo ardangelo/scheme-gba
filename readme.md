@@ -8,7 +8,7 @@ A Scheme compiler targetting ARM assembly and Game Boy Advance. Started on a fli
 Currently supports:
 * Fixnums
 * Immediate constants
-* Primitive procedures: `add1`, `sub1`, `integer->char`, `char->integer`, `null?`, `zero?`, `not`, `integer?`, `boolean?`, `+`, `-`, `*`, `let` (immediate constants only), `if`
+* Primitive procedures: `add1`, `sub1`, `integer->char`, `char->integer`, `null?`, `zero?`, `not`, `integer?`, `boolean?`, `+`, `-`, `*`, `let` (immediate constants only), `if`, `cons`
 
 Requires devKitPro (formerly devKitARM).
 
@@ -20,10 +20,10 @@ Emits the assembly prelude (`prelude.s`) and the result of compiling `scheme.rkt
 
 Takes an `emit` function and a Scheme program and compiles it.
 
-### gba.rkt
+### gba.rkt, mem-defs.rkt
 
-Contains GBA-specific constants and functions
+Contains GBA/memory-specific constants and functions
 
 ### driver.c
 
-Calls `scheme_entry` and writes the result to IWRAM (address `0x03000000`), visible in the VisualBoyAdvance memory viewer.
+Calls `scheme_entry` and writes the result to WRAM (address `0x02000000`), visible in the VisualBoyAdvance memory viewer.
