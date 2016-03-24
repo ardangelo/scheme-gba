@@ -4,5 +4,5 @@
 
 (provide (all-defined-out))
 
-(define loc-iwram #x02000000)
-(define loc-wram #x03000000)
+(define loc-wram #x02000000)
+(define loc-iwram #x03000000)

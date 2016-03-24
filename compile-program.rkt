@@ -31,8 +31,12 @@
 							(cond
 								[(immediate? src)
 									(if (null? shift)
-										(emit "	ldr~a ~a, =#~a" cndl (ptr-loc dst) src)
-										(emit "	mov~a ~a, ~a, ~a ~a" cndl (ptr-loc dst) (ptr-loc src) (car shift) (cadr shift)))]
+										(if (can-mov-constant src)
+											(emit "	mov~a ~a, #~a" cndl (ptr-loc dst) src)
+											(emit "	ldr~a ~a, =#~a" cndl (ptr-loc dst) src))
+										(if (can-mov-constant src)
+											(emit "	mov~a ~a, #~a, ~a ~a" cndl (ptr-loc dst) src (car shift) (cadr shift))
+											(raise-user-error (format "ldr immediate with barrel shift not supported: ~a" src))))]
 								[(direct-reg? src)
 									(if (null? shift)
 										(emit "	mov~a ~a, ~a" cndl (ptr-loc dst) (ptr-loc src))
@@ -44,38 +48,42 @@
 								[#t
 									(raise-user-error "internal move failure")])]
 						[(offset-reg? dst)
-							(cond
-								[(immediate? src)
-									(if (can-mov-constant src)
-										(emit "	str~a #~a, [~a, #~a]" cndl src (offset-base dst) (ptr-loc dst))
-										(begin
-											(emit "	ldr~a ~a, =#~a" cndl scratch src)
-											(emit "	str~a ~a, [~a, #~a]" cndl scratch (offset-base dst) (ptr-loc dst))))]
-								[(direct-reg? src)
-									(emit "	str~a ~a, [~a, #~a]" cndl (ptr-loc src) (offset-base dst) (ptr-loc dst))]
-								[(offset-reg? src)
-									(emit "	ldr~a ~a, [~a, #~a]" cndl scratch (offset-base src) (ptr-loc src))
-									(emit "	str~a ~a, [~a, #~a]" cndl scratch (offset-base dst) (ptr-loc dst))]
-								[#t
-									(raise-user-error (format "internal move failure"))])]
+							(if (not (null? shift))
+								(raise-user-error (format "memory load with barrel shift not supported: ~a" src))
+								(cond
+									[(immediate? src)
+										(if (can-mov-constant src)
+											(emit "	str~a #~a, [~a, #~a]" cndl src (offset-base dst) (ptr-loc dst))
+											(begin
+												(emit "	ldr~a ~a, =#~a" cndl scratch src)
+												(emit "	str~a ~a, [~a, #~a]" cndl scratch (offset-base dst) (ptr-loc dst))))]
+									[(direct-reg? src)
+										(emit "	str~a ~a, [~a, #~a]" cndl (ptr-loc src) (offset-base dst) (ptr-loc dst))]
+									[(offset-reg? src)
+										(emit "	ldr~a ~a, [~a, #~a]" cndl scratch (offset-base src) (ptr-loc src))
+										(emit "	str~a ~a, [~a, #~a]" cndl scratch (offset-base dst) (ptr-loc dst))]
+									[#t
+										(raise-user-error (format "internal move failure"))]))]
 						[(direct-mem? dst)
-							(cond
-								[(immediate? src)
-									(if (can-mov-constant src)
-										(emit "	str~a #~a, ~a" cndl src (ptr-loc dst))
-										(begin
-											(emit "	ldr~a ~a, =#~a" cndl scratch src)
-											(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))))]
-								[(direct-reg? src)
-									(emit "	str~a ~a, ~a" cndl (ptr-loc src) (ptr-loc dst))]
-								[(offset-reg? src)
-									(emit "	ldr~a ~a, [~a, #~a]" cndl scratch (offset-base src) (ptr-loc src))
-									(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))]
-								[(direct-mem? src)
-									(emit "	ldr~a ~a, ~a" cndl scratch (ptr-loc src))
-									(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))]
-								[#t
-									(raise-user-error (format "internal move failure"))])]
+							(if (not (null? shift))
+									(raise-user-error (format "memory load with barrel shift not supported: ~a" src))
+								(cond
+									[(immediate? src)
+										(if (can-mov-constant src)
+											(emit "	str~a #~a, ~a" cndl src (ptr-loc dst))
+											(begin
+												(emit "	ldr~a ~a, =#~a" cndl scratch src)
+												(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))))]
+									[(direct-reg? src)
+										(emit "	str~a ~a, ~a" cndl (ptr-loc src) (ptr-loc dst))]
+									[(offset-reg? src)
+										(emit "	ldr~a ~a, [~a, #~a]" cndl scratch (offset-base src) (ptr-loc src))
+										(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))]
+									[(direct-mem? src)
+										(emit "	ldr~a ~a, ~a" cndl scratch (ptr-loc src))
+										(emit "	str~a ~a, ~a" cndl scratch (ptr-loc dst))]
+									[#t
+										(raise-user-error (format "internal move failure"))]))]
 						[#t
 							(raise-user-error (format "unsupported pointer type ~a" (ptr-type dst)))])
 					(emit "	@ src and dst same reg")))))

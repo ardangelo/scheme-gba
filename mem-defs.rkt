@@ -63,6 +63,8 @@
 (define heapptr r8)
 
 (define (alloc regs si) ; eventually make this a queue that auto moves to stack
+	(define gp-regs (list r1 r2 r3 r4 r5 r6 r9 r10 r11 r12)) ; r7 scratch, r8 heap
+
 	(define (helper regs-to-check)
 		(cond
 			[(null? regs-to-check)
@@ -70,7 +72,7 @@
 			[(not (set-member? regs (car regs-to-check)))
 				(car regs-to-check)]
 			[#t (helper (cdr regs-to-check))]))
-	(helper (list r4 r5 r6 r9 r10 r11 r12)))
+	(helper gp-regs))
 (define (add-regs regs ptr)
 	(if (eq? (ptr-type ptr) 'reg)
 		(set-add regs ptr)
