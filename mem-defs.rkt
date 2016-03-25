@@ -18,6 +18,7 @@
 (define boolean-tag #b00111111)
 (define boolean-shift 7)
 
+(define heap-mask #b111)
 (define pair-tag #b001)
 (define vector-tag #b010)
 (define string-tag #b011)
@@ -32,16 +33,26 @@
 (struct ptr (type loc)
 	#:guard (lambda (type loc type-name)
 		(cond
-			[(not (member type '(reg stack heap mem)))
+			[(not (member type '(reg offset mem)))
 				(raise-user-error (format "invalid ptr type: ~a" type))]
 			[else (values type loc)])))
 
-(struct var (varname ptr)
-	#:guard (lambda (varname ptr type-name)
-		(cond
-			[(not (ptr? ptr))
-				(raise-user-error (format "invalid ptr: ~a" ptr))]
-			[else (values varname ptr)])))
+(define (offset-reg? ptr) (eq? (ptr-type ptr) 'offset))
+(define (offset-base ptr)
+	(if (offset-reg? ptr)
+		(ptr-loc (car (ptr-loc ptr)))
+		(raise-user-error (format "not an offset ptr: ~a" ptr))))
+(define (offset-amt ptr)
+	(if (offset-reg? ptr)
+		(cadr (ptr-loc ptr))
+		(raise-user-error (format "not an offset ptr: ~a" ptr))))
+(define (direct-reg? ptr) (member (ptr-type ptr) '(reg)))
+(define (direct-mem? ptr) (member (ptr-type ptr) '(mem)))
+
+(define (stack-offset si)
+	(ptr 'offset (list stackptr si)))
+(define (heap-offset si)
+	(ptr 'offset (list heapptr si)))
 
 (define r0 (ptr 'reg "r0"))
 (define r1 (ptr 'reg "r1"))
@@ -62,27 +73,34 @@
 (define stackptr sp)
 (define heapptr r8)
 
-(define (alloc regs si) ; eventually make this a queue that auto moves to stack
-	(define gp-regs (list r1 r2 r3 r4 r5 r6 r9 r10 r11 r12)) ; r7 scratch, r8 heap
+(define caller-saved-regs (list r4 r5 r6 r9 r10 r11 r12))
+(define reg-alloc-map (make-hash))
+(for ([reg caller-saved-regs])
+	(hash-set! reg-alloc-map reg #f))
 
+(define (reg-in-use? reg)
+	(hash-ref reg-alloc-map reg))
+(define (mark-used reg)
+	(hash-set! reg-alloc-map reg #t))
+(define (mark-unused reg)
+	(hash-set! reg-alloc-map reg #f))
+
+(define (new-saved-reg)
+	(define select-random
+		(lambda (ls)
+			(let ((len (length ls)))
+				(list-ref ls (random len)))))
 	(define (helper regs-to-check)
 		(cond
 			[(null? regs-to-check)
-				(ptr 'stack si)]
-			[(not (set-member? regs (car regs-to-check)))
+				(select-random caller-saved-regs)]
+			[(not (reg-in-use? (car regs-to-check)))
 				(car regs-to-check)]
 			[#t (helper (cdr regs-to-check))]))
-	(helper gp-regs))
-(define (add-regs regs ptr)
-	(if (eq? (ptr-type ptr) 'reg)
-		(set-add regs ptr)
-		regs))
-(define (remove-regs regs ptr)
-	(if (eq? (ptr-type ptr) 'reg)
-		(set-remove regs ptr)
-		regs))
+	(helper caller-saved-regs))
+
 (define (new-si si ptr)
-	(if (eq? (ptr-type ptr) 'stack)
+	(if (and (offset-reg? ptr) (eq? (offset-base ptr) stackptr))
 		(- si wordsize)
 		si))
 
