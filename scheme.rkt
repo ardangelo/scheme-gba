@@ -1,1 +1,1 @@
-(+ (* 2 3) 1)
+(string-set! (make-string 9) 1 #\G)

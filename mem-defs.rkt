@@ -6,8 +6,12 @@
 (define wordsize 4)
 
 ; immediate values
+(define byte-mask #xFF)
+(define byte-tag 0)
+(define byte-shift 0)
+
 (define fixnum-mask #b00000011)
-(define fixnum-tag #b00000000)
+(define fixnum-tag #b00)
 (define fixnum-shift 2)
 
 (define char-mask #b11111111)
@@ -37,22 +41,24 @@
 				(raise-user-error (format "invalid ptr type: ~a" type))]
 			[else (values type loc)])))
 
-(define (offset-reg? ptr) (eq? (ptr-type ptr) 'offset))
+(define (offset-ptr? ptr) (eq? (ptr-type ptr) 'offset))
 (define (offset-base ptr)
-	(if (offset-reg? ptr)
-		(ptr-loc (car (ptr-loc ptr)))
+	(if (offset-ptr? ptr)
+		(car (ptr-loc ptr))
 		(raise-user-error (format "not an offset ptr: ~a" ptr))))
 (define (offset-amt ptr)
-	(if (offset-reg? ptr)
+	(if (offset-ptr? ptr)
 		(cadr (ptr-loc ptr))
 		(raise-user-error (format "not an offset ptr: ~a" ptr))))
-(define (direct-reg? ptr) (member (ptr-type ptr) '(reg)))
-(define (direct-mem? ptr) (member (ptr-type ptr) '(mem)))
+(define (reg-ptr? ptr) (member (ptr-type ptr) '(reg)))
+(define (mem-ptr? ptr) (member (ptr-type ptr) '(mem)))
 
-(define (stack-offset si)
-	(ptr 'offset (list stackptr si)))
-(define (heap-offset si)
-	(ptr 'offset (list heapptr si)))
+(define (reg-offset-ptr reg si)
+	(ptr 'offset (list reg si)))
+(define (stack-offset-ptr si)
+	(reg-offset-ptr stackptr si))
+(define (heap-offset-ptr si)
+	(reg-offset-ptr heapptr si))
 
 (define r0 (ptr 'reg "r0"))
 (define r1 (ptr 'reg "r1"))
@@ -72,6 +78,8 @@
 (define scratch r7)
 (define stackptr sp)
 (define heapptr r8)
+
+; register mgmt and alloc
 
 (define caller-saved-regs (list r4 r5 r6 r9 r10 r11 r12))
 (define reg-alloc-map (make-hash))
@@ -99,11 +107,6 @@
 			[#t (helper (cdr regs-to-check))]))
 	(helper caller-saved-regs))
 
-(define (new-si si ptr)
-	(if (and (offset-reg? ptr) (eq? (offset-base ptr) stackptr))
-		(- si wordsize)
-		si))
-
 (define (can-mov-constant b) ; can't mov more than 8b + 4b even shift
 	(define (helper x shamt)
 		(if (> shamt 30) #f
@@ -111,3 +114,5 @@
 				(<= (abs x) 255)
 				(helper (arithmetic-shift -2 x) (+ shamt 2)))))
 	(helper b 0))
+
+; memory mgmt and alloc
