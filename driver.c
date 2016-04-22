@@ -1,9 +1,9 @@
 int scheme_entry();
 
 int main() {
-	int* wram = (int*)0x02000000;
+	char* iwram = (char*)0x03000000;
 
-	*(wram) = scheme_entry();
+	*(iwram + 0x100) = scheme_entry();
 
 	while(1);
 

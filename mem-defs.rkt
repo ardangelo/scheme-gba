@@ -23,6 +23,7 @@
 (define boolean-shift 7)
 
 (define heap-mask #b111)
+(define heap-shift 3)
 (define pair-tag #b001)
 (define vector-tag #b010)
 (define string-tag #b011)
@@ -59,6 +60,8 @@
 	(reg-offset-ptr stackptr si))
 (define (heap-offset-ptr si)
 	(reg-offset-ptr heapptr si))
+(define (mem-ptr loc)
+	(ptr 'mem loc))
 
 (define r0 (ptr 'reg "r0"))
 (define r1 (ptr 'reg "r1"))
@@ -74,6 +77,7 @@
 (define r11 (ptr 'reg "r11"))
 (define r12 (ptr 'reg "r12"))
 (define sp (ptr 'reg "sp"))
+(define lr (ptr 'reg "lr"))
 
 (define scratch r7)
 (define stackptr sp)
@@ -81,6 +85,7 @@
 
 ; register mgmt and alloc
 
+(define all-regs (list r0 r1 r2 r3 r4 r5 r6 r9 r10 r11 r12))
 (define caller-saved-regs (list r4 r5 r6 r9 r10 r11 r12))
 (define reg-alloc-map (make-hash))
 (for ([reg caller-saved-regs])

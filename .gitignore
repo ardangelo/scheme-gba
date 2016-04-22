@@ -3,3 +3,4 @@
 *.elf
 *.gba
 scheme.s
+compiled/

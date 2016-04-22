@@ -1,1 +1,3 @@
-(string-set! (make-string 9) 1 #\G)
+(let
+	((x (cons 1 (cons 2 '()))) (y (cons 3 (cons 4 '()))))
+	(+ (car (cdr x)) (car (cdr y))))

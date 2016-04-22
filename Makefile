@@ -3,7 +3,7 @@ PATH := $(DEVKITARM)/bin:$(PATH)
 INCLUDE  := 
 LIBPATHS := 
 
-SPECS	:= -specs=gba.specs
+SPECS	:= -specs=gba_mb.specs
 ARCH	:= -mthumb-interwork -mthumb
 
 ASFLAGS	:= -mthumb-interwork
