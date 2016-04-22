@@ -13,7 +13,7 @@
 ; arm syntax macros
 (define-syntax label
 	(syntax-rules ()
-		[(label lbl) (set! output-stack (append output-stack (list lbl)))]))
+		[(label lbl) (set! output-stack (append output-stack (list (format "~a:" lbl))))]))
 (define-syntax imm
 	(syntax-rules ()
 		[(imm x) (format "#~a" x)]))
@@ -86,8 +86,8 @@
 			(emit-label start-label)
 			(inst 'cmp r0 r1)
 			(inst 'beq end-label)
-			(inst 'strb r2 "[r0]" 1)
-			(inst 'add r2 r2 1)
+			(inst 'strb r2 "[r0]" 1) ; post-indexing mode; (++r0)* = r2
+			;(inst 'add r2 r2 1)
 			(inst 'b start-label)
 			(emit-label end-label)))
 
@@ -462,20 +462,21 @@
 	(let ([reduced-stack (optimize (compile-unoptimized x))])
 
 		(for ([line reduced-stack])
-			(case (length (second line))
-				[(0) (emit "	~a" (first line))]
-				[(1) (emit
-					"	~a ~a"
-					(symbol->string (first line))
-					(op->string (first (cadr line))))]
-				[(2) (emit
-					"	~a ~a, ~a"
-					(symbol->string (first line))
-					(op->string (first (cadr line)))
-					(op->string (second (cadr line))))]
-				[(3) (emit
-					"	~a ~a, ~a, ~a"
-					(symbol->string (first line))
-					(op->string (first (cadr line)))
-					(op->string (second (cadr line)))
-					(op->string (third (cadr line))))]))))
+			(if (string? line)
+				(emit "~a" line)
+				(case (length (second line))
+					[(1) (emit
+						"	~a ~a"
+						(symbol->string (first line))
+						(op->string (first (cadr line))))]
+					[(2) (emit
+						"	~a ~a, ~a"
+						(symbol->string (first line))
+						(op->string (first (cadr line)))
+						(op->string (second (cadr line))))]
+					[(3) (emit
+						"	~a ~a, ~a, ~a"
+						(symbol->string (first line))
+						(op->string (first (cadr line)))
+						(op->string (second (cadr line)))
+						(op->string (third (cadr line))))])))))
