@@ -78,6 +78,7 @@
 (define r12 (ptr 'reg "r12"))
 (define sp (ptr 'reg "sp"))
 (define lr (ptr 'reg "lr"))
+(define pc (ptr 'reg "pc"))
 
 (define scratch r7)
 (define stackptr sp)

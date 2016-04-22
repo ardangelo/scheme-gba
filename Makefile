@@ -17,16 +17,25 @@ scheme.s : scheme.rkt
 	racket gbacompile.rkt -o scheme.s scheme.rkt
 
 # compile the object files
-driver.o : driver.c
-	arm-none-eabi-gcc $(CFLAGS) -c driver.c -o driver.o
+main.o : main.c
+	arm-none-eabi-gcc $(CFLAGS) -c main.c -o main.o
+
+
+# # compile the main
+# main.s : main.rkt
+# 	racket gbacompile.rkt -o main.s main.rkt
+
+# # assemble the main
+# main.o : main.s
+# 	arm-none-eabi-as $(ASFLAGS) -o main.o main.s
 
 # assemble the output source
 scheme.o : scheme.s
 	arm-none-eabi-as $(ASFLAGS) -o scheme.o scheme.s
 
 # link objects into an elf
-gbctest.elf : driver.o scheme.o
-	arm-none-eabi-gcc driver.o scheme.o $(LDFLAGS) -o gbctest.elf
+gbctest.elf : main.o scheme.o
+	arm-none-eabi-gcc main.o scheme.o $(LDFLAGS) -o gbctest.elf
 
 # objcopy and fix the rom
 gbctest.gba : gbctest.elf
@@ -37,4 +46,4 @@ clean :
 	@rm -fv *.gba
 	@rm -fv *.elf
 	@rm -fv *.o
-	@rm -fv scheme.s .map
+	@rm -fv scheme.s main.s .map

@@ -10,21 +10,6 @@
 
 (define output-stack '())
 
-; arm syntax macros
-(define-syntax label
-	(syntax-rules ()
-		[(label lbl) (set! output-stack (append output-stack (list (format "~a:" lbl))))]))
-(define-syntax imm
-	(syntax-rules ()
-		[(imm x) (format "#~a" x)]))
-(define-syntax regsh
-	(syntax-rules ()
-		[(regsh reg amt) (format "[~a, #~a]" reg amt)]))
-(define-syntax barsh
-	(syntax-rules ()
-		[(barsh shtgt shamt)
-			(format "~a, ~a #~a" shtgt (if (> shamt 0) "lsl" "asr") (abs shamt))]))
-
 (define (compile-unoptimized x)
 	(define (inst instr . args)
 		(set! output-stack (append output-stack (list (list instr args)))))
@@ -86,7 +71,7 @@
 			(emit-label start-label)
 			(inst 'cmp r0 r1)
 			(inst 'beq end-label)
-			(inst 'strb r2 "[r0]" 1) ; post-indexing mode; (++r0)* = r2
+			(inst 'strb r2 (reg-offset-ptr r0 0) 1) ; post-indexing mode; (++r0)* = r2
 			;(inst 'add r2 r2 1)
 			(inst 'b start-label)
 			(emit-label end-label)))
@@ -114,7 +99,7 @@
 	(define (primcall? x)
 		(and
 			(list? x)
-			(list? (member (primcall-op x) '(
+			(list? (member (primcall-op x) '(asm
 				add1 sub1 integer->char char->integer null? zero? not integer? boolean?
 				+ - * = <
 				cons cons? car cdr
@@ -151,7 +136,7 @@
 			(set! label-count (+ label-count 1))
 			(format ".L~a" label-count)))
 	(define (emit-label lbl)
-		(label lbl))
+		(format "~a:" lbl))
 
 	(define (if? x) (and (list? x) (eq? (car x) 'if)))
 	(define (emit-if condition if-true if-false si env)
@@ -218,19 +203,22 @@
 					(inst 'bx (ptr-loc lr))))))
 	(define (emit-labelcall label-name args si env)
 		(define (bind-args args argc si env)
-			(if (null? vars) si
+			(if (null? args) (push lr si)
 				(begin
 					(emit-expr (car args) si env)
 					(let (
-						[target (if (<= argc 4)
-							(case argc [(4) r3] [(3) r2] [(2) r1] [(1) r0])
+						[target (if (< argc 4)
+							(case argc [(3) r3] [(2) r2] [(1) r1] [(0) r0])
 							(stack-offset-ptr si))]
-						[new-si (if (<= argc 4) si (- si wordsize))])
+						[new-si (if (< argc 4) si (- si wordsize))])
 						(move target r0)
 						(bind-args (cdr args) (+ 1 argc) new-si env)))))
 		(begin
-			(bind-args args 1 si env)
-			(inst 'b (lookup label-name env))))
+			(let ([stack-used (bind-args args 1 si env)])
+				(inst 'add sp sp stack-used)
+				(inst 'add lr pc wordsize)
+				(inst 'b label-name);(lookup label-name env))
+				(inst 'sub sp sp stack-used))))
 	; (define (emit-closure label-name values si env)
 	; 	; store address of (lookup label-name env) in r0
 	; 	(move
@@ -303,12 +291,15 @@
 			[(let? x) (emit-let (bindings x) (body x) si env)]
 			[(if? x) (emit-if (cadr x) (caddr x) (cadddr x) si env)]
 			[(labels? x) (emit-labels (lvars x) (expr x) si env)]
+			[(labelcall? x) (emit-labelcall (cadr x) (cddr x) si env)]
 			; [(funcall? x) (emit-funcall (cadr x) (cddr x) si env)]
 			; [(closure? x) (emit-closure (cadr x) (cddr x) si env)]
 			[(primcall? x)
 				(case (primcall-op x)
 
 					; unary primitives
+					[(asm)
+						(inst (cadr x))]
 					[(add1)
 						(emit-operands 1 x si)
 						(inst 'add r0 r0 (immediate-rep 1))]
@@ -439,8 +430,10 @@
 			[#t (raise-user-error (format "unknown expr type to emit: ~a" x))]))
 
 	(begin 
+		(define env (make-hash))
 		(load-addr heapptr (mem-ptr loc-iwram)) ; set up the heap
-		(emit-expr x 0 (make-hash))
+		(for ([line x])
+			(emit-expr line 0 env))
 		(inst 'bx lr)
 		output-stack))
 
@@ -458,13 +451,18 @@
 			[(ptr? op)
 				(cond
 					[(or (reg-ptr? op) (mem-ptr? op)) (ptr-loc op)]
-					[(offset-ptr? op) (regsh (ptr-loc (offset-base op)) (offset-amt op))])]))
+					[(offset-ptr? op)
+						(if (zero? (offset-amt op))
+							(format "[~a]" (ptr-loc (offset-base op)))
+							(format "[~a, #~a]" (ptr-loc (offset-base op)) (offset-amt op)))])]))
+
 	(let ([reduced-stack (optimize (compile-unoptimized x))])
 
 		(for ([line reduced-stack])
 			(if (string? line)
 				(emit "~a" line)
-				(case (length (second line))
+				(case (length (cadr line))
+					[(0) (emit "~a" (first line))]
 					[(1) (emit
 						"	~a ~a"
 						(symbol->string (first line))

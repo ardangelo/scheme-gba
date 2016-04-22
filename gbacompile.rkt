@@ -23,9 +23,10 @@
 	(define prelude (port->string prelude-port))
 	(close-input-port prelude-port)
 
-	(define code-port (open-input-file code-path #:mode 'text))
-	(define code (read code-port))
-	(close-input-port code-port)
+	;(define code-port (open-input-file code-path #:mode 'text))
+	;(define code (file->list code-port))
+	(define code (file->list code-path))
+	;(close-input-port code-port)
 
 	(define out-port (open-output-file output-path #:exists 'truncate))
 
@@ -36,7 +37,14 @@
 				(displayln (format s (car a)) out-port)
 				(displayln (apply format (cons s a)) out-port))))
 
+	(define global-label (first (string-split output-path ".")))
+
 	(emit prelude)
+
+	(emit "	.ident	\"gbc.rkt dev\"")
+	(emit "	.global	~a" global-label)
+	(emit "	@type ~a, %function" global-label)
+	(emit "~a:" global-label)
 
 	(with-handlers
 		([exn:fail:user? (lambda (e) (begin
@@ -45,7 +53,7 @@
 			(error (exn-message e))))])
 		(compile-program emit code))
 
-	(emit "	.ident	\"gbc.rkt dev\"")
+	(emit "	.ident	\"gbacompile.rkt dev\"")
 
 	(close-output-port out-port))
 
