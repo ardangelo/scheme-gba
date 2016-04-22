@@ -43,7 +43,7 @@
 
 	(emit "	.ident	\"gbc.rkt dev\"")
 	(emit "	.global	~a" global-label)
-	(emit "	@type ~a, %function" global-label)
+	(emit "	.type ~a, %function" global-label)
 	(emit "~a:" global-label)
 
 	(with-handlers
