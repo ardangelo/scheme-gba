@@ -136,7 +136,7 @@
 			(set! label-count (+ label-count 1))
 			(format ".L~a" label-count)))
 	(define (emit-label lbl)
-		(format "~a:" lbl))
+		(inst (format "~a:" lbl))
 
 	(define (if? x) (and (list? x) (eq? (car x) 'if)))
 	(define (emit-if condition if-true if-false si env)
@@ -217,7 +217,7 @@
 			(let ([stack-used (bind-args args 1 si env)])
 				(inst 'add sp sp stack-used)
 				(inst 'add lr pc wordsize)
-				(inst 'b label-name);(lookup label-name env))
+				(inst 'b (lookup label-name env))
 				(inst 'sub sp sp stack-used))))
 	; (define (emit-closure label-name values si env)
 	; 	; store address of (lookup label-name env) in r0
