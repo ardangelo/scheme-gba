@@ -44,14 +44,13 @@
 	(emit "	.ident	\"gbc.rkt dev\"")
 	(emit "	.global	~a" global-label)
 	(emit "	.type ~a, %function" global-label)
-	(emit "~a:" global-label)
 
 	(with-handlers
 		([exn:fail:user? (lambda (e) (begin
 			(close-output-port out-port)
 			(delete-file output-path)
 			(error (exn-message e))))])
-		(compile-program emit code))
+		(compile-program emit global-label code))
 
 	(emit "	.ident	\"gbacompile.rkt dev\"")
 

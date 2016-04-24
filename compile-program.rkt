@@ -10,7 +10,7 @@
 
 (define output-stack '())
 
-(define (compile-unoptimized x)
+(define (compile-unoptimized global-label x)
 	(define (inst instr . args)
 		(set! output-stack (append output-stack (list (list instr args)))))
 	(define (symbol-append instr cndl)
@@ -20,20 +20,22 @@
 		(define movc (if (not (null? cndl)) (symbol-append 'mov cndl) 'mov))
 		(define ldrc (if (not (null? cndl)) (symbol-append 'ldr cndl) 'ldr))
 		(define strc (if (not (null? cndl)) (symbol-append 'str cndl) 'str))
-		(cond
-			[(reg-ptr? dst) (cond
-				[(integer? src)
-					(if (can-mov-constant src)
-						(inst movc dst src)
-						(inst ldrc dst (format "=~a" src)))]
-				[(reg-ptr? src) (inst movc dst src)]
-				[(or (offset-ptr? src) (mem-ptr? src))
-					(inst ldrc dst src)])]
-			[(or (offset-ptr? dst) (mem-ptr? dst)) (cond
-				[(or (integer? src) (reg-ptr? src)) (inst strc src dst)]
-				[(or (offset-ptr? src) (mem-ptr? src))
-					(inst ldrc scratch src)
-					(inst strc scratch dst)])]))
+		(if (eq? dst src)
+			(inst (format "	@ move ~a <- ~a skipped" (ptr-loc dst) (ptr-loc src)))
+			(cond
+				[(reg-ptr? dst) (cond
+					[(integer? src)
+						(if (can-mov-constant src)
+							(inst movc dst src)
+							(inst ldrc dst (format "=~a" src)))]
+					[(reg-ptr? src) (inst movc dst src)]
+					[(or (offset-ptr? src) (mem-ptr? src))
+						(inst ldrc dst src)])]
+				[(or (offset-ptr? dst) (mem-ptr? dst)) (cond
+					[(or (integer? src) (reg-ptr? src)) (inst strc src dst)]
+					[(or (offset-ptr? src) (mem-ptr? src))
+						(inst ldrc scratch src)
+						(inst strc scratch dst)])])))
 
 	(define (stash-reg reg offset)
 		(move (stack-offset-ptr offset) reg))
@@ -104,8 +106,7 @@
 				+ - * = <
 				cons cons? car cdr
 				make-vector vector? vector-ref vector-set!
-				make-string string? string-ref string-set!
-				primcall funcall)))))
+				make-string string? string-ref string-set!)))))
 
 	; let
 	(define (bindings x) (cadr x))
@@ -136,7 +137,7 @@
 			(set! label-count (+ label-count 1))
 			(format ".L~a" label-count)))
 	(define (emit-label lbl)
-		(inst (format "~a:" lbl))
+		(inst (format "~a:" lbl)))
 
 	(define (if? x) (and (list? x) (eq? (car x) 'if)))
 	(define (emit-if condition if-true if-false si env)
@@ -161,8 +162,6 @@
 		(and (list? x) (eq? (car x) 'labels)))
 	(define (labelcall? x)
 		(and (list? x) (eq? (car x) 'labelcall)))
-	(define (closure? x)
-		(and (list? x) (eq? (car x) 'closure)))
 
 	(define (emit-labels lvars expr si env)
 		(define (env-gen lvars new-env)
@@ -173,66 +172,43 @@
 					(extend-env (car (car lvars)) (unique-label) new-env))))
 		(let ([new-env (env-gen lvars env)])
 			(for ([label-def lvars])
-				(emit-lexpr (car label-def) (cadr label-def) si new-env))))
+				(emit-lexpr (car label-def) (cadr label-def) si new-env))
+			(emit-expr expr si env)))
 	(define (emit-lexpr label-name label-code si env)
 		(define (placehold-args vars argc si env)
 			(if (null? vars) env
-				(if (<= argc 4)
-					(placehold-args (cdr vars) (+ argc 1) si
-						(extend-env
-							(car vars)
-							(case argc [(4) r3] [(3) r2] [(2) r1] [(1) r0]) env))
-					(placehold-args (cdr vars) (+ argc 1) (- si wordsize)
-						(extend-env
-							(car vars)
-							(stack-offset-ptr si) env)))))
+				(placehold-args (cdr vars) (+ argc 1) (- si wordsize)
+					(extend-env
+						(car vars)
+						(stack-offset-ptr si) env))))
 		(if (not (lexpr? label-code))
 			(raise-user-error (format "not a lexpr (code (var ... ) <Expr>): ~a" label-code))
 			(let* (
-				[new-env (placehold-args (vars label-code) 1 (- si wordsize) env)]
 				[argc (length (vars label-code))]
-				[new-si (if (<= argc 4)
-					(- si wordsize)
-					(+ (- si (* wordsize (- argc 4))) wordsize))]) ; leave space for lr
+				[stack-used (+ (* argc wordsize) wordsize)]
+				[new-env (placehold-args (vars label-code) 0 (+ si (- stack-used wordsize)) env)]
+				[new-si (- si (+ (* argc wordsize) wordsize))]) ; space for lr
 
 				(begin
+					(define save-stack output-stack)
+					(set! output-stack '()) ; bad :(
 					(emit-label (lookup label-name new-env))
-					(move (stack-offset-ptr si) lr)
 					(emit-expr (expr label-code) new-si new-env)
-					(move lr (stack-offset-ptr si))
-					(inst 'bx (ptr-loc lr))))))
+					(inst 'bx lr)
+					(set! output-stack (append output-stack save-stack))))))
 	(define (emit-labelcall label-name args si env)
-		(define (bind-args args argc si env)
+		(define (bind-args args argc si env) ; put em all on the stack
 			(if (null? args) (push lr si)
 				(begin
 					(emit-expr (car args) si env)
-					(let (
-						[target (if (< argc 4)
-							(case argc [(3) r3] [(2) r2] [(1) r1] [(0) r0])
-							(stack-offset-ptr si))]
-						[new-si (if (< argc 4) si (- si wordsize))])
-						(move target r0)
-						(bind-args (cdr args) (+ 1 argc) new-si env)))))
+					(bind-args (cdr args) (+ 1 argc) (push r0 si) env))))
 		(begin
-			(let ([stack-used (bind-args args 1 si env)])
-				(inst 'add sp sp stack-used)
-				(inst 'add lr pc wordsize)
-				(inst 'b (lookup label-name env))
-				(inst 'sub sp sp stack-used))))
-	; (define (emit-closure label-name values si env)
-	; 	; store address of (lookup label-name env) in r0
-	; 	(move
-	; 		(heap-offset-ptr 0)
-	; 		(bitwise-ior (arithmetic-shift (string->integer (substring (lookup label-name env) 2)) heap-shift) closure-tag))
-	; 	(move (heap-offset-ptr wordsize) r0)
-	; 	(for ([value values] [i (in-range 2 (+ 2 (length values)))])
-	; 		(emit-expr value si env)
-	; 		(move (heap-offset-ptr (* i wordsize)) r0))
-	; 	(move r0 heapptr)
-	; 	(emit "	add ~a, ~a, #~a"
-	; 		(ptr-loc heapptr)
-	; 		(ptr-loc heapptr)
-	; 		(* (+ (length values) 2))))
+			(let ([stack-used (+ (* (length args) wordsize) wordsize)]) ; space for lr
+				(inst 'sub sp sp stack-used)
+				(bind-args args 0 (+ si (- stack-used wordsize)) env)
+				(inst 'bl (lookup label-name env))
+				(move lr (stack-offset-ptr si))
+				(inst 'add sp sp stack-used))))
 
 	; emit expressions
 	(define (emit-expr x si env)
@@ -292,8 +268,6 @@
 			[(if? x) (emit-if (cadr x) (caddr x) (cadddr x) si env)]
 			[(labels? x) (emit-labels (lvars x) (expr x) si env)]
 			[(labelcall? x) (emit-labelcall (cadr x) (cddr x) si env)]
-			; [(funcall? x) (emit-funcall (cadr x) (cddr x) si env)]
-			; [(closure? x) (emit-closure (cadr x) (cddr x) si env)]
 			[(primcall? x)
 				(case (primcall-op x)
 
@@ -431,6 +405,7 @@
 
 	(begin 
 		(define env (make-hash))
+		(emit-label global-label)
 		(load-addr heapptr (mem-ptr loc-iwram)) ; set up the heap
 		(for ([line x])
 			(emit-expr line 0 env))
@@ -443,7 +418,7 @@
 		(for/list ([line stack])
 			line)))
 
-(define (compile-program emit x)
+(define (compile-program emit global-label x)
 	(define (op->string op)
 		(cond
 			[(string? op) op]
@@ -456,7 +431,7 @@
 							(format "[~a]" (ptr-loc (offset-base op)))
 							(format "[~a, #~a]" (ptr-loc (offset-base op)) (offset-amt op)))])]))
 
-	(let ([reduced-stack (optimize (compile-unoptimized x))])
+	(let ([reduced-stack (optimize (compile-unoptimized global-label x))])
 
 		(for ([line reduced-stack])
 			(if (string? line)
