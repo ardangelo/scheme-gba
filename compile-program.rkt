@@ -134,7 +134,7 @@
 	; conditionals
 	(define (unique-label)
 		(begin
-			(set! label-count (+ label-count 1))
+			(set! label-count (add1 label-count))
 			(format ".L~a" label-count)))
 	(define (emit-label lbl)
 		(inst (format "~a:" lbl)))
@@ -152,16 +152,16 @@
 			(emit-label L1)))
 
 	; procedures
-	(define (lvars x) (cadr x))
-	(define (vars x) (cadr x))
-	(define (expr x) (caddr x))
-
 	(define (lexpr? x)
-		(and (list? x) (eq? (car x) 'code) (list? (cadr x))))
+		(and (list? x) (eq? (car x) 'code) (list? (cadr x)) (list? (caddr x))))
 	(define (labels? x)
 		(and (list? x) (eq? (car x) 'labels)))
-	(define (labelcall? x)
-		(and (list? x) (eq? (car x) 'labelcall)))
+	;(define (labelcall? x)
+	;	(and (list? x) (eq? (car x) 'labelcall)))
+	(define (funcall? x)
+		(and (list? x) (eq? (car x) 'funcall)))
+	(define (closure? x)
+		(and (list? x) (eq? (car x) 'closure)))
 
 	(define (emit-labels lvars expr si env)
 		(define (env-gen lvars new-env)
@@ -175,40 +175,91 @@
 				(emit-lexpr (car label-def) (cadr label-def) si new-env))
 			(emit-expr expr si env)))
 	(define (emit-lexpr label-name label-code si env)
-		(define (placehold-args vars argc si env)
-			(if (null? vars) env
-				(placehold-args (cdr vars) (+ argc 1) (- si wordsize)
+		(define (placehold-params params argc si env)
+			(if (null? params) env
+				(placehold-params (cdr params) (add1 argc) (- si wordsize)
 					(extend-env
-						(car vars)
+						(car params)
 						(stack-offset-ptr si) env))))
-		(if (not (lexpr? label-code))
-			(raise-user-error (format "not a lexpr (code (var ... ) <Expr>): ~a" label-code))
-			(let* (
-				[argc (length (vars label-code))]
-				[stack-used (+ (* argc wordsize) wordsize)]
-				[new-env (placehold-args (vars label-code) 0 (+ si (- stack-used wordsize)) env)]
-				[new-si (- si (+ (* argc wordsize) wordsize))]) ; space for lr
-
+		(define (placehold-free-vars vars argc si env)
+			(if (null? vars) env
 				(begin
-					(define save-stack output-stack)
-					(set! output-stack '()) ; bad :(
-					(emit-label (lookup label-name new-env))
-					(emit-expr (expr label-code) new-si new-env)
+					(move r2 (reg-offset-ptr r0 (* argc wordsize)))
+					(placehold-free-vars (cdr vars) (add1 argc)
+						(push r2 si)
+						(extend-env
+							(car vars)
+							(stack-offset-ptr si) env)))))
+		(if (not (lexpr? label-code))
+			(raise-user-error (format "not a lexpr (code (formal-param ... ) (free-var ... ) <Expr>): ~a" label-code))
+			(let* (
+				[argc (length (cadr label-code))]
+				[stack-used (+ (* argc wordsize) wordsize)]
+				[new-si (- si (+ (* argc wordsize) wordsize))]
+				[params-env (placehold-params (cadr label-code) 0 (- si (- stack-used wordsize)) env)]) ; space for lr
+
+				(define save-stack output-stack)
+				(set! output-stack '()) ; bad :(
+				(emit-label (lookup label-name env))
+				;(move r0 (stack-offset-ptr (- new-si wordsize))) ; load the closure pointer
+				(let ([new-env (placehold-free-vars (caddr label-code) 1 new-si params-env)])
+					(inst "	@ setup done, emitting label code")
+					(emit-expr (cadddr label-code) new-si new-env)
 					(inst 'bx lr)
 					(set! output-stack (append output-stack save-stack))))))
-	(define (emit-labelcall label-name args si env)
+	; (define (emit-labelcall label-name args si env)
+	; 	(define (bind-args args argc si env) ; put em all on the stack
+	; 		(if (null? args) (push lr si)
+	; 			(begin
+	; 				(emit-expr (car args) si env)
+	; 				(bind-args (cdr args) (+ 1 argc) (push r0 si) env))))
+	; 	(begin
+	; 		(let ([stack-used (+ (* (length args) wordsize) wordsize)]) ; space for lr
+	; 			(inst 'sub sp sp stack-used)
+	; 			(bind-args args 0 (+ si (- stack-used wordsize)) env)
+	; 			(inst 'bl (lookup label-name env))
+	; 			(move lr (stack-offset-ptr si))
+	; 			(inst 'add sp sp stack-used))))
+
+	; closures
+	(define (emit-closure lvar values si env)
+		(inst (format "	@ lvar ~a values ~a" lvar values))
+		(inst 'ldr r0 (format "=~a" (lookup lvar env)))
+		(inst 'lsl r0 r0 heap-shift)
+		(inst 'orr r0 r0 closure-tag)
+		(move (heap-offset-ptr 0) r0)
+		(for ([value values] [i (in-range 1 (add1 (length values)))])
+			(inst (format "	@ value ~a" value))
+			(emit-expr value si env)
+			(move (heap-offset-ptr (* i wordsize)) r0))
+		(move r0 heapptr)
+		(inst 'add heapptr heapptr (* (add1 (length values)) wordsize)))
+
+	(define (emit-funcall operator args si env)
 		(define (bind-args args argc si env) ; put em all on the stack
-			(if (null? args) (push lr si)
+			(if (null? args)
 				(begin
+					(inst "	@ evaluating operator")
+					(emit-expr operator si env)
+					si)
+					;(push r0 si))
+				(begin
+					(inst (format "	@ funcall arg ~a" (car args)))
 					(emit-expr (car args) si env)
-					(bind-args (cdr args) (+ 1 argc) (push r0 si) env))))
+					(bind-args (cdr args) (add1 argc) (push r0 si) env))))
 		(begin
-			(let ([stack-used (+ (* (length args) wordsize) wordsize)]) ; space for lr
-				(inst 'sub sp sp stack-used)
-				(bind-args args 0 (+ si (- stack-used wordsize)) env)
-				(inst 'bl (lookup label-name env))
-				(move lr (stack-offset-ptr si))
-				(inst 'add sp sp stack-used))))
+			(let ([new-si (bind-args args 0 (push lr si) env)]) ; space for closure ptr
+				(inst "	@ get proc addr from closure pointer")
+				;(move r1 (stack-offset-ptr (+ new-si (* 2 wordsize))))
+				(inst 'ldr r1 "[r0]")
+				(inst 'asr r1 r1 heap-shift)
+				(inst "	@ shift stack to prepare for jump")
+				(inst 'add sp sp si);(* (add1 (length args)) wordsize)))
+				(move lr pc)
+				(inst "	@ jump to closure")
+				(inst 'bx r1)
+				(inst 'sub sp sp si);(* (add1 (length args)) wordsize)))
+				(pop lr si))))
 
 	; emit expressions
 	(define (emit-expr x si env)
@@ -266,8 +317,10 @@
 			[(immediate? x) (emit-immediate x)]
 			[(let? x) (emit-let (bindings x) (body x) si env)]
 			[(if? x) (emit-if (cadr x) (caddr x) (cadddr x) si env)]
-			[(labels? x) (emit-labels (lvars x) (expr x) si env)]
-			[(labelcall? x) (emit-labelcall (cadr x) (cddr x) si env)]
+			[(labels? x) (emit-labels (cadr x) (caddr x) si env)]
+			;[(labelcall? x) (emit-labelcall (cadr x) (cddr x) si env)]
+			[(funcall? x) (emit-funcall (cadr x) (cddr x) si env)]
+			[(closure? x) (emit-closure (cadr x) (cddr x) si env)]
 			[(primcall? x)
 				(case (primcall-op x)
 
