@@ -87,9 +87,9 @@
 ; register mgmt and alloc
 
 (define all-regs (list r0 r1 r2 r3 r4 r5 r6 r9 r10 r11 r12))
-(define caller-saved-regs (list r4 r5 r6 r9 r10 r11 r12))
+(define callee-saved-regs (list r4 r5 r6 r9 r10 r11 r12))
 (define reg-alloc-map (make-hash))
-(for ([reg caller-saved-regs])
+(for ([reg callee-saved-regs])
 	(hash-set! reg-alloc-map reg #f))
 
 (define (reg-in-use? reg)
@@ -107,11 +107,11 @@
 	(define (helper regs-to-check)
 		(cond
 			[(null? regs-to-check)
-				(select-random caller-saved-regs)]
+				(select-random callee-saved-regs)]
 			[(not (reg-in-use? (car regs-to-check)))
 				(car regs-to-check)]
 			[#t (helper (cdr regs-to-check))]))
-	(helper caller-saved-regs))
+	(helper callee-saved-regs))
 
 (define (can-mov-constant b) ; can't mov more than 8b + 4b even shift
 	(define (helper x shamt)

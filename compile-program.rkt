@@ -116,8 +116,8 @@
 		(hash-ref env x))
 	(define (extend-env varname valptr env)
 		(begin
-			(hash-set! env varname valptr)
-			env))
+			;(displayln (format "setting ~a to ~a" varname valptr))
+			(hash-set env varname valptr)))
 	(define (emit-let bindings body si env)
 		(define (lhs b) (car b))
 		(define (rhs b) (cadr b))
@@ -162,6 +162,8 @@
 		(and (list? x) (eq? (car x) 'funcall)))
 	(define (closure? x)
 		(and (list? x) (eq? (car x) 'closure)))
+	(define (lambda? x)
+		(and (list? x) (eq? (car x) 'lambda)))
 
 	(define (emit-labels lvars expr si env)
 		(define (env-gen lvars new-env)
@@ -195,13 +197,12 @@
 			(let* (
 				[argc (length (cadr label-code))]
 				[stack-used (+ (* argc wordsize) wordsize)]
-				[new-si (- si (+ (* argc wordsize) wordsize))]
-				[params-env (placehold-params (cadr label-code) 0 (- si (- stack-used wordsize)) env)]) ; space for lr
+				[new-si (- 0 (+ (* argc wordsize) wordsize))]
+				[params-env (placehold-params (cadr label-code) 0 (- wordsize) env)]);(- si (- stack-used wordsize)) env)]) ; space for lr
 
 				(define save-stack output-stack)
 				(set! output-stack '()) ; bad :(
 				(emit-label (lookup label-name env))
-				;(move r0 (stack-offset-ptr (- new-si wordsize))) ; load the closure pointer
 				(let ([new-env (placehold-free-vars (caddr label-code) 1 new-si params-env)])
 					(inst "	@ setup done, emitting label code")
 					(emit-expr (cadddr label-code) new-si new-env)
@@ -242,7 +243,6 @@
 					(inst "	@ evaluating operator")
 					(emit-expr operator si env)
 					si)
-					;(push r0 si))
 				(begin
 					(inst (format "	@ funcall arg ~a" (car args)))
 					(emit-expr (car args) si env)
@@ -250,16 +250,33 @@
 		(begin
 			(let ([new-si (bind-args args 0 (push lr si) env)]) ; space for closure ptr
 				(inst "	@ get proc addr from closure pointer")
-				;(move r1 (stack-offset-ptr (+ new-si (* 2 wordsize))))
-				(inst 'ldr r1 "[r0]")
+				(inst 'ldr r1 "[r0]") ; r0: closure pointer, r1: func address
 				(inst 'asr r1 r1 heap-shift)
 				(inst "	@ shift stack to prepare for jump")
-				(inst 'add sp sp si);(* (add1 (length args)) wordsize)))
+				(inst 'add sp sp si)
 				(move lr pc)
 				(inst "	@ jump to closure")
 				(inst 'bx r1)
-				(inst 'sub sp sp si);(* (add1 (length args)) wordsize)))
+				(inst 'sub sp sp si)
 				(pop lr si))))
+
+	; lambdas
+	(define (emit-lambda expr si env)
+		(define (find-free-vars params body env)
+			(define (is-free? var)
+				(and (not (member var params)) (hash-has-key? env var)))
+			(filter is-free? (flatten body)))
+		(let* (
+			[params (cadr expr)]
+			[body (caddr expr)]
+			[free-vars (find-free-vars (cadr expr) (caddr expr) env)]
+			[label-name (unique-label)]
+			[lvar (string->symbol label-name)]
+			[new-env (extend-env lvar label-name env)])
+
+			;(displayln (format "free-vars: ~a" free-vars))
+			(emit-lexpr lvar (list 'code params free-vars body) si new-env)
+			(emit-closure lvar free-vars si new-env)))
 
 	; emit expressions
 	(define (emit-expr x si env)
@@ -321,6 +338,7 @@
 			;[(labelcall? x) (emit-labelcall (cadr x) (cddr x) si env)]
 			[(funcall? x) (emit-funcall (cadr x) (cddr x) si env)]
 			[(closure? x) (emit-closure (cadr x) (cddr x) si env)]
+			[(lambda? x) (emit-lambda x si env)]
 			[(primcall? x)
 				(case (primcall-op x)
 
@@ -457,7 +475,8 @@
 			[#t (raise-user-error (format "unknown expr type to emit: ~a" x))]))
 
 	(begin 
-		(define env (make-hash))
+		(define env (make-immutable-hash))
+		;(inst ".thumb_func")
 		(emit-label global-label)
 		(load-addr heapptr (mem-ptr loc-iwram)) ; set up the heap
 		(for ([line x])

@@ -41,7 +41,6 @@
 
 	(emit prelude)
 
-	(emit "	.ident	\"gbc.rkt dev\"")
 	(emit "	.global	~a" global-label)
 	(emit "	.type ~a, %function" global-label)
 
