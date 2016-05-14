@@ -164,6 +164,11 @@
 		(and (list? x) (eq? (car x) 'closure)))
 	(define (lambda? x)
 		(and (list? x) (eq? (car x) 'lambda)))
+	; (define (apply? x env)
+	; 	(and (list? x) 
+	; 		(or (eq? (car x) 'apply))))
+				; (and (hash-has-key? env (car x))
+				; 	(bitwise-ior (ptr-loc (lookup (car x) env)))))
 
 	(define (emit-labels lvars expr si env)
 		(define (env-gen lvars new-env)
@@ -339,6 +344,7 @@
 			[(funcall? x) (emit-funcall (cadr x) (cddr x) si env)]
 			[(closure? x) (emit-closure (cadr x) (cddr x) si env)]
 			[(lambda? x) (emit-lambda x si env)]
+			;[(apply? x env) (emit-funcall (cadr x) (caddr x) si env)]
 			[(primcall? x)
 				(case (primcall-op x)
 
