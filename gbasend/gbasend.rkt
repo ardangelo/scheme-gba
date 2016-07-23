@@ -1,8 +1,12 @@
 #lang racket
 
+;; Racket is not great for such intense bit-wrangling :(
+
 ;; A big thank you to:
-;;  `akkera102` whose C code I ported to Racket (https://github.com/akkera102/gba_01_multiboot)
-;;  `stevelloyd` for wiringpi bindings (https://github.com/stevelloyd/wiringpi-racket)
+;;  `akkera102` who helped me understand their C multiboot code
+;;    https://github.com/akkera102/gba_01_multiboot
+;;  `stevelloyd` for wiringpi bindings
+;;    https://github.com/stevelloyd/wiringpi-racket
 
 (require ffi/unsafe)
 (require "wiringpi.rkt")
