@@ -207,8 +207,7 @@
     (if (not (lexpr? label-code))
         (raise-user-error (format "not a lexpr (datum)/(code (formal-param ... ) (free-var ... ) <Expr>): ~a" label-code))
         
-        (if (eq? (car label-code) 'code)
-            (let*
+        (let*
                 (
                  [argc (length (cadr label-code))]
                  [stack-used (+ (* argc wordsize) wordsize)]
@@ -222,12 +221,7 @@
                 (inst "    @ setup done, emitting label code")
                 (emit-expr (cadddr label-code) new-si new-env)
                 (inst 'bx lr)
-                (set! output-stack (append output-stack save-stack))))
-            (let ; datum form
-                (
-                 [new-si (- wordsize)]
-                 [new-env (extend-env '(asm "    @junk value") (stack-offset-ptr si) env)])
-              (emit-expr (cadddr label-code) new-si new-env)))))
+                (set! output-stack (append output-stack save-stack))))))
   ; (define (emit-labelcall label-name args si env)
   ;   (define (bind-args args argc si env) ; put em all on the stack
   ;       (if (null? args) (push lr si)
@@ -345,18 +339,24 @@
             (emit-closure lvar free-vars si new-env)))))
   (define (emit-complex-constant expr ref-lvar si env)
     (inst (format "    @ emitting complex const ~a" expr))
-    (let* (
-           [loc-lname (unique-label)]
-           [loc-lvar (string->symbol loc-lname)])
-           ;[loc-lvar (stack-offset-ptr si)]
-           ;[new-env (extend-env loc-lvar (stack-offset-ptr si) env)])
-      (emit-labels
-       (list
-        (list ref-lvar (list 'code '() '() (list 'constant-ref loc-lvar)))
-        (list loc-lvar '(datum)))
-         (list 'constant-init loc-lvar expr)
-         si env)
-      (emit-closure ref-lvar '() si env)))
+    ; create space for word on heap
+    ; generate store-lvar label
+    ; let si' = push heap ptr to stack
+    ; let env' = extend-env store-lvar (stack-offset-ptr si) env
+    ; constant-init store-lvar expr
+    ; emit-closure ref-lvar '() si' env', returned to emit-let and bound to original lhs
+    (let*
+      (
+        [store-lvar (string->symbol (unique-label))]
+        [new-si (push heapptr si)]
+        [ref-env (extend-env ref-lvar (list 'code '() '() (list 'constant-ref store-lvar)))]
+        [store-env (extend-env store-lvar (stack-offset-ptr si) ref-env)])
+      ; constant-init
+      (emit-expr expr si env)
+      (move (heap-offset-ptr 0) r0)
+      (inst 'add heapptr heapptr wordsize)
+      ; closure emit
+      (emit-closure ref-lvar '() new-si new-env)))
 
   ; emit expressions
   (define (emit-expr x si env)
