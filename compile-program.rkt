@@ -106,7 +106,8 @@
                                       + - * = <
                                       cons cons? car cdr
                                       make-vector vector? vector-ref vector-set!
-                                      make-string string? string-ref string-set!)))))
+                                      make-string string? string-ref string-set!
+                                      eq? constant-ref constant-init)))))
 
   ; let
   (define (bindings x) (cadr x))
@@ -153,7 +154,10 @@
 
   ; procedures
   (define (lexpr? x)
-    (and (list? x) (eq? (car x) 'code) (list? (cadr x)) (list? (caddr x))))
+    (or
+     (and (list? x)
+          (and (eq? (car x) 'code) (list? (cadr x)) (list? (caddr x))))
+     (eq? x '(datum))))
   (define (labels? x)
     (and (list? x) (eq? (car x) 'labels)))
   ;(define (labelcall? x)
@@ -166,11 +170,12 @@
     (and (list? x) (eq? (car x) 'lambda)))
   (define (tailcall? x)
     (and (list? x) (eq? (car x) 'tailcall)))
-  ; (define (apply? x env)
-  ;   (and (list? x) 
-  ;       (or (eq? (car x) 'apply))))
-  ; (and (hash-has-key? env (car x))
-  ;   (bitwise-ior (ptr-loc (lookup (car x) env)))))
+  (define (apply? x env)
+    #f)
+  ;  (and (list? x) 
+  ;       (or (eq? (car x) 'apply)
+  ;           (and (hash-has-key? env (car x))
+  ;                (bitwise-ior (ptr-loc (lookup (car x) env)))))))
 
   (define (emit-labels lvars expr si env)
     (define (env-gen lvars new-env)
@@ -200,21 +205,29 @@
                                   (car vars)
                                   (stack-offset-ptr si) env)))))
     (if (not (lexpr? label-code))
-        (raise-user-error (format "not a lexpr (code (formal-param ... ) (free-var ... ) <Expr>): ~a" label-code))
-        (let* (
-               [argc (length (cadr label-code))]
-               [stack-used (+ (* argc wordsize) wordsize)]
-               [new-si (- 0 (+ (* argc wordsize) wordsize))]
-               [params-env (placehold-params (cadr label-code) 0 (- wordsize) env)]);(- si (- stack-used wordsize)) env)]) ; space for lr
-
-          (define save-stack output-stack)
-          (set! output-stack '()) ; bad :(
-          (emit-label (lookup label-name env))
-          (let ([new-env (placehold-free-vars (caddr label-code) 1 new-si params-env)])
-            (inst "    @ setup done, emitting label code")
-            (emit-expr (cadddr label-code) new-si new-env)
-            (inst 'bx lr)
-            (set! output-stack (append output-stack save-stack))))))
+        (raise-user-error (format "not a lexpr (datum)/(code (formal-param ... ) (free-var ... ) <Expr>): ~a" label-code))
+        
+        (if (eq? (car label-code) 'code)
+            (let*
+                (
+                 [argc (length (cadr label-code))]
+                 [stack-used (+ (* argc wordsize) wordsize)]
+                 [new-si (- 0 (+ (* argc wordsize) wordsize))]
+                 [params-env (placehold-params (cadr label-code) 0 (- wordsize) env)]);(- si (- stack-used wordsize)) env)]) ; space for lr
+              
+              (define save-stack output-stack)
+              (set! output-stack '()) ; bad :(
+              (emit-label (lookup label-name env))
+              (let ([new-env (placehold-free-vars (caddr label-code) 1 new-si params-env)])
+                (inst "    @ setup done, emitting label code")
+                (emit-expr (cadddr label-code) new-si new-env)
+                (inst 'bx lr)
+                (set! output-stack (append output-stack save-stack))))
+            (let ; datum form
+                (
+                 [new-si (- wordsize)]
+                 [new-env (extend-env '(asm "    @junk value") (stack-offset-ptr si) env)])
+              (emit-expr (cadddr label-code) new-si new-env)))))
   ; (define (emit-labelcall label-name args si env)
   ;   (define (bind-args args argc si env) ; put em all on the stack
   ;       (if (null? args) (push lr si)
@@ -297,6 +310,16 @@
       (inst 'bx r1)
       ;(inst 'sub sp sp si)
       (pop lr si)))
+  
+  (define (emit-apply expr si env tailcall-flag)
+    (let ([op+args
+           (if (and (list? expr) (eq? (car expr) 'apply))
+               ((cadr expr) . (cadr (caddr expr)))
+               (if (and (hash-has-key? env (car x))
+                        (bitwise-ior (ptr-loc (lookup (car x) env))))
+                   ((car expr) . (cdr expr))
+                   (error (format "error: expression not an apply form: ~a" expr))))])
+      (emit-funcall (first op+args) (second op+args) si env)))
 
   ; lambdas
   (define (emit-lambda expr si env)
@@ -311,10 +334,29 @@
            [label-name (unique-label)]
            [lvar (string->symbol label-name)]
            [new-env (extend-env lvar label-name env)])
-
-      ;(displayln (format "free-vars: ~a" free-vars))
-      (emit-lexpr lvar (list 'code params free-vars body) si new-env)
-      (emit-closure lvar free-vars si new-env)))
+      ;special case where body is a complex constant
+      (if (and
+           (null? params)
+           (null? free-vars)
+           (not (immediate? (car body))))
+          (emit-complex-constant body lvar si new-env)
+          (begin
+            (emit-lexpr lvar (list 'code params free-vars body) si new-env)
+            (emit-closure lvar free-vars si new-env)))))
+  (define (emit-complex-constant expr ref-lvar si env)
+    (inst (format "    @ emitting complex const ~a" expr))
+    (let* (
+           [loc-lname (unique-label)]
+           [loc-lvar (string->symbol loc-lname)])
+           ;[loc-lvar (stack-offset-ptr si)]
+           ;[new-env (extend-env loc-lvar (stack-offset-ptr si) env)])
+      (emit-labels
+       (list
+        (list ref-lvar (list 'code '() '() (list 'constant-ref loc-lvar)))
+        (list loc-lvar '(datum)))
+         (list 'constant-init loc-lvar expr)
+         si env)
+      (emit-closure ref-lvar '() si env)))
 
   ; emit expressions
   (define (emit-expr x si env)
@@ -378,7 +420,7 @@
       [(tailcall? x) (emit-tailcall (cadr x) (cddr x) si env)]
       [(closure? x) (emit-closure (cadr x) (cddr x) si env)]
       [(lambda? x) (emit-lambda x si env)]
-      ;[(apply? x env) (emit-funcall (cadr x) (caddr x) si env)]
+      [(apply? x env) (emit-apply x si env)]
       [(primcall? x)
        (case (primcall-op x)
 
@@ -434,7 +476,7 @@
             (if stash-reqd
                 (restore-reg saved si)
                 (mark-unused si)))]
-         [(= char=?)
+         [(= char=? eq?) ; TODO: error on comparing immediate/nonimmediate or using wrong eq
           (emit-operands 2 x si)
           (inst 'cmp r0 r1)
           (move r0 (immediate-rep #t) #:cndl 'eq)
@@ -507,6 +549,15 @@
           (inst 'add r0 r0 r1)
           (move (reg-offset-ptr r0 1) r2 #:cndl 'b)
           (move r0 empty-list-val)]
+         [(constant-init)
+          (inst (format "    @ init constant ~a" x))
+          (emit-operands 1 x si)
+          (move (heap-offset-ptr 0) r0)
+          (move r0 heapptr)
+          (inst 'add heapptr heapptr wordsize)]
+         [(constant-ref)
+          (inst (format "    @ ref constant ~a" x))
+          (move r0 (lookup (cadr x) env))]
 
          [else
           (raise-user-error (format "unknown expr to emit: ~a" x))])]
