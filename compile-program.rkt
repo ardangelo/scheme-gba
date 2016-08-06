@@ -348,15 +348,19 @@
     (let*
       (
         [store-lvar (string->symbol (unique-label))]
-        [new-si (push heapptr si)]
-        [ref-env (extend-env ref-lvar (list 'code '() '() (list 'constant-ref store-lvar)))]
-        [store-env (extend-env store-lvar (stack-offset-ptr si) ref-env)])
+        [ref-env (extend-env ref-lvar (symbol->string ref-lvar) env)]
+        [store-env (extend-env store-lvar (heap-offset-ptr 0) ref-env)])
       ; constant-init
+      (inst (format "    @ cc lexpr"))
+      (emit-lexpr ref-lvar (list 'code '() '() (list 'constant-ref store-lvar)) si store-env)
+      (inst (format "    @ cc expr"))
       (emit-expr expr si env)
+      (inst (format "    @ storing result"))
       (move (heap-offset-ptr 0) r0)
-      (inst 'add heapptr heapptr wordsize)
-      ; closure emit
-      (emit-closure ref-lvar '() new-si new-env)))
+      (let ([new-si si]);(push r0 si)]);(push heapptr si)])
+        (inst 'add heapptr heapptr wordsize)
+        (inst (format "    @ emitting closure"))
+        (emit-closure ref-lvar (list (list 'constant-ref store-lvar)) new-si store-env))))
 
   ; emit expressions
   (define (emit-expr x si env)
